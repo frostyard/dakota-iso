@@ -173,7 +173,7 @@ install offline without a network pull. This requires:
 - **Backend binary:** `fisherman` — symlinked to `/usr/local/bin/fisherman` by `configure-live.sh`
 - **Config path:** `/etc/bootc-installer/images.json` (catalog lock) + `recipe.json` (branding)
 - **Flatpak sandbox trick:** Inside the Flatpak, `/etc` is reserved. The host `/etc` is at
-  `/run/host/etc`. Recipe is passed via `VANILLA_CUSTOM_RECIPE=/run/host/etc/bootc-installer/recipe.json`.
+  `/run/host/etc`. Recipe is passed via `BOOTC_CUSTOM_RECIPE=/run/host/etc/bootc-installer/recipe.json`.
 - **live-iso-mode:** `touch /etc/bootc-installer/live-iso-mode` activates live ISO mode
   in the installer (see tuna-os/tuna-installer#26).
 

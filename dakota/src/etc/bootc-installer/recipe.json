@@ -6,6 +6,8 @@
   "local_imgref": "containers-storage:ghcr.io/projectbluefin/dakota:latest",
   "bootloader": "systemd",
   "composeFsBackend": true,
+  "distroID": "dakota",
+  "brewTap": "ublue-os/tap",
   "tour": {
     "welcome": {
       "image": "/run/host/usr/share/bootc-installer/images/dakotaraptor.png",
