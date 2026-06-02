@@ -941,10 +941,10 @@ luks-boot-qemu-live target:
         sleep 5
     done
 
-    # Save a live boot screendump for CI diagnostics / PR comment
-    sleep 2
-    sudo socat - "UNIX-CONNECT:{{luks-qemu-monitor-live}}" \
-        <<< "screendump /tmp/luks-screenshot-live.ppm" 2>/dev/null || true
+    # Wait for the live boot GUI to render and stabilize before taking screenshot
+    sudo python3 "dakota/src/luks-unlock.py" wait-live \
+        "{{luks-qemu-monitor-live}}" \
+        "/tmp/luks-screenshot-live.ppm" || true
 
 # Run fisherman LUKS install via SSH into the live QEMU VM.
 # Reuses the same SSH logic as luks-install; install disk is /dev/vda in QEMU.
@@ -1060,3 +1060,7 @@ luks-unlock-qemu target:
         key=$(echo "$label" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
         bash "dakota/src/show-screenshot.sh" "/tmp/luks-screenshot-${key}.ppm" "$label" || true
     done
+
+# Run Python unit tests.
+test:
+    python3 -m unittest discover -s tests

@@ -28,6 +28,26 @@ permissions:
   actions: read
 
 jobs:
+  unit-tests:
+    name: Python Unit Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install just
+        uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v2.81.1 (just)
+        with:
+          tool: just
+
+      - name: Run unit tests
+        run: just test
+
   luks-e2e:
     name: LUKS E2E (${{ matrix.installer_channel }})
     runs-on: ubuntu-24.04
