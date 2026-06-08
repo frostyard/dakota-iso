@@ -70,6 +70,21 @@ flatpak install --system --noninteractive --bundle /tmp/tuna-installer.flatpak |
     flatpak update --system --noninteractive "${INSTALLER_APP_ID}"
 rm /tmp/tuna-installer.flatpak
 
+# flatpak install --bundle in a container build (no flatpak daemon) does not
+# create the 'current' symlink that flatpak run requires to find the deployment.
+# Create it manually so the installer launches correctly in the live environment.
+APP_ARCH_DIR="/var/lib/flatpak/app/${INSTALLER_APP_ID}/x86_64"
+for BRANCH_DIR in "${APP_ARCH_DIR}"/*/; do
+    BRANCH=$(basename "${BRANCH_DIR}")
+    [[ "$BRANCH" == "current" ]] && continue
+    DEPLOY=$(ls "${BRANCH_DIR}" 2>/dev/null | head -1)
+    if [[ -n "$DEPLOY" ]] && [[ ! -L "${APP_ARCH_DIR}/current" ]]; then
+        ln -sfn "${BRANCH}/${DEPLOY}" "${APP_ARCH_DIR}/current"
+        echo "Created flatpak current symlink: ${BRANCH}/${DEPLOY}"
+    fi
+done
+rm /tmp/tuna-installer.flatpak
+
 flatpak override --system --filesystem=/etc:ro "${INSTALLER_APP_ID}"
 
 # ── Reconcile Flathub apps against the wanted list ───────────────────────────

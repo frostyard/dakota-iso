@@ -310,13 +310,13 @@ INSTALLER_APP_ID="org.bootcinstaller.Installer"
 [[ "${INSTALLER_CHANNEL:-stable}" == "dev" ]] && INSTALLER_APP_ID="org.bootcinstaller.Installer.Devel"
 
 mkdir -p /etc/xdg/autostart
-# VANILLA_CUSTOM_RECIPE workaround (tuna-os/tuna-installer#26): inside the
-# Flatpak sandbox /etc is reserved; the host /etc is at /run/host/etc.  Pass
-# the recipe via env var at the /run/host path so the installer finds it.
+# BOOTC_CUSTOM_RECIPE (bootc-installer): inside the Flatpak sandbox /etc is
+# reserved; the host /etc is at /run/host/etc.  Pass the recipe via env var
+# at the /run/host path so the installer finds it.
 cat > /etc/xdg/autostart/tuna-installer.desktop << DTEOF
 [Desktop Entry]
 Name=Dakota Installer
-Exec=flatpak run --env=VANILLA_CUSTOM_RECIPE=/run/host/etc/bootc-installer/recipe.json ${INSTALLER_APP_ID}
+Exec=flatpak run --env=BOOTC_CUSTOM_RECIPE=/run/host/etc/bootc-installer/recipe.json ${INSTALLER_APP_ID}
 Icon=dakota
 Type=Application
 X-GNOME-Autostart-enabled=true
@@ -330,7 +330,7 @@ cat > /usr/share/applications/dakota-installer.desktop << DTEOF
 [Desktop Entry]
 Name=Dakota Installer
 Comment=Install Dakota to your computer
-Exec=flatpak run --env=VANILLA_CUSTOM_RECIPE=/run/host/etc/bootc-installer/recipe.json ${INSTALLER_APP_ID}
+Exec=flatpak run --env=BOOTC_CUSTOM_RECIPE=/run/host/etc/bootc-installer/recipe.json ${INSTALLER_APP_ID}
 Icon=dakota
 Type=Application
 Categories=System;
