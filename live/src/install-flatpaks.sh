@@ -66,23 +66,20 @@ fi
 INSTALLER_APP_ID="org.bootcinstaller.Installer"
 [[ "${INSTALLER_CHANNEL:-stable}" == "dev" ]] && INSTALLER_APP_ID="org.bootcinstaller.Installer.Devel"
 
-flatpak install --system --noninteractive --bundle /tmp/tuna-installer.flatpak || \
-    flatpak update --system --noninteractive "${INSTALLER_APP_ID}"
-
-# flatpak install --bundle in a container build (no flatpak daemon) does not
-# create the 'current' symlink that flatpak run requires to find the deployment.
-# Create it manually so the installer launches correctly in the live environment.
-APP_ARCH_DIR="/var/lib/flatpak/app/${INSTALLER_APP_ID}/x86_64"
-for BRANCH_DIR in "${APP_ARCH_DIR}"/*/; do
-    BRANCH=$(basename "${BRANCH_DIR}")
-    [[ "$BRANCH" == "current" ]] && continue
-    DEPLOY=$(ls "${BRANCH_DIR}" 2>/dev/null | head -1)
-    if [[ -n "$DEPLOY" ]] && [[ ! -L "${APP_ARCH_DIR}/current" ]]; then
-        ln -sfn "${BRANCH}/${DEPLOY}" "${APP_ARCH_DIR}/current"
-        echo "Created flatpak current symlink: ${BRANCH}/${DEPLOY}"
-    fi
-done
+# Import the bundle into a temporary local repo and install from there.
+# flatpak install --bundle in a container build (no running flatpak system
+# daemon) only creates the installer-origin: remote ref — it does NOT create
+# the deploy/ ref that flatpak run/list require.  Installing from a local
+# file:// remote goes through the full deploy pipeline and correctly creates
+# the deploy/ ref so the app is visible and runnable.
+INSTALLER_LOCAL_REPO="/tmp/installer-local-repo"
+flatpak build-import-bundle "${INSTALLER_LOCAL_REPO}" /tmp/tuna-installer.flatpak
 rm -f /tmp/tuna-installer.flatpak
+flatpak remote-add --system --no-gpg-verify installer-local "file://${INSTALLER_LOCAL_REPO}"
+flatpak install --system --noninteractive installer-local "${INSTALLER_APP_ID}" || \
+    flatpak update --system --noninteractive "${INSTALLER_APP_ID}"
+flatpak remote-delete --system installer-local || true
+rm -rf "${INSTALLER_LOCAL_REPO}"
 
 flatpak override --system --filesystem=/etc:ro "${INSTALLER_APP_ID}"
 
