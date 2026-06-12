@@ -111,7 +111,7 @@ jobs:
         run: |
           START=$SECONDS
           # 4096 MiB: tight overlay tmpfs to expose ENOSPC-class bugs
-          sudo just qemu-mem=4096 installer_channel="$INSTALLER_CHANNEL" plain-test-qemu dakota
+          sudo env PATH="$PATH" just qemu-mem=4096 installer_channel="$INSTALLER_CHANNEL" plain-test-qemu dakota
           echo "duration=$((SECONDS - START))" >> "$GITHUB_OUTPUT"
 
       - name: Capture serial logs and screenshot

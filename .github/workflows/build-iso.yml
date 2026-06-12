@@ -150,7 +150,7 @@ jobs:
         id: plain_e2e
         timeout-minutes: 60
         run: |
-          sudo just qemu-mem=4096 installer_channel=stable plain-test-qemu dakota
+          sudo env PATH="$PATH" just qemu-mem=4096 installer_channel=stable plain-test-qemu dakota
 
       - name: Upload plain E2E serial logs
         if: always()
