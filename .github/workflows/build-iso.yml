@@ -6,6 +6,7 @@ on:
     paths:
       - 'live/**'
       - 'scripts/**'
+      - 'justfile'
       - '.github/workflows/build-iso.yml'
   schedule:
     - cron: '0 3 * * *'
