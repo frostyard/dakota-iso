@@ -62,6 +62,7 @@ rclone copyto -v \
 |---|---|---|
 | `dakota-live-alpha2.iso` | `20260508-3059a71` | Last build with fisherman v0.1.0 before v0.2.0 regression |
 | `dakota-nvidia-live-alpha2.iso` | `20260508-3059a71` | Nvidia variant, same build |
+| `dakota-live-alpha3.iso` | `20260614-9939dd7` | First build with fixed installer (fisherman v0.2.1, bootc-installer v2.7.4) |
 | `dakota-live-latest.iso` | Latest CI build | Auto-updated by `build-iso.yml` |
 | `dakota-nvidia-live-latest.iso` | Latest CI build | Auto-updated by `build-iso.yml` |
 
@@ -162,3 +163,11 @@ Server-side copies take 2–5 min for 4–5 GB files — this is normal, do not 
 Without `no_check_bucket = true`, rclone's `CopyObject` call to the Cloudflare R2 API
 hangs indefinitely on large files. This is a known Cloudflare R2 behavior.
 Always include this in the rclone R2 config.
+
+### rclone endpoint uses account-ID hostname — keep it configurable (2026-06)
+
+The R2 endpoint `https://<account-id>.r2.cloudflarestorage.com` embeds the
+account ID as a hostname. Do not hardcode it in documentation — the format is
+required by rclone's S3 provider and cannot be shortened to a path-based form.
+When setting up a new rclone config, prompt the user to fill in their account ID
+rather than copying a pre-filled value from docs.

@@ -162,40 +162,31 @@ If the image grows, this overflows.
 
 ---
 
-## fisherman hostname failure after composefs install
+## fisherman hostname failure — fixed in v2.7.4
 
-**Symptom:** E2E 3/4 fails with:
+**Symptom (pre-v2.7.4):**
 ```
 fisherman: fatal: writing hostname: finding deployment dir: ostree admin --print-current-dir: exit status 1
 ```
 
-**Root cause:** When `bootc install to-filesystem --composefs-backend` runs, it
-creates `ostree/bootc/` on the target disk instead of the traditional
-`ostree/deploy/default/`. In step 7 ("Configuring installed system"), fisherman
-calls `ostree admin --print-current-dir` to locate the deployment directory for
-writing `/etc/hostname`. That command fails because there is no traditional ostree
-deployment — composefs uses a different on-disk layout.
+**Root cause:** `ostree admin --print-current-dir` reads booted-deployment
+state from the running kernel — it always exits 1 against a freshly-installed
+target that has never been booted. This hit the ostree branch of `WriteHostname`
+in step 7 of the fisherman pipeline, crashing every real install.
 
-The actual `bootc` installation (step 5) **completes successfully**. Only the
-post-install hostname-writing step fails.
+**Why CI didn't catch it for weeks:**
+- Unit tests mocked `DeploymentDirFn` so `DefaultDeploymentDir` was never called
+- The e2e wrapper `scripts/fisherman-install.sh` silently caught the crash,
+  re-mounted the disk, and patched `/etc/hostname` directly
+- CI appeared green; the real installer on the ISO was broken
 
-**Evidence from CI log:**
-```
-{"message":"bootc installation complete",...}     ← step 5 complete
-{"message":"Copying system Flatpaks",...}          ← step 6 complete
-{"message":"Writing hostname: dakota-plain-test"} ← step 7 begins
-+ ls /mnt/fisherman-target/ostree
-bootc                                              ← no deploy/ dir
-fisherman: fatal: writing hostname: finding deployment dir: ostree admin --print-current-dir: exit status 1
-```
+**Fix (fisherman v0.2.1 / bootc-installer v2.7.4):** `DefaultDeploymentDir`
+now falls back to `filepath.Glob(sysroot/ostree/deploy/*/deploy/*)` when
+`--print-current-dir` fails. Three regression tests lock this down.
 
-**Fix:** `continue-on-error: true` on E2E 3/4 so ISO upload proceeds. A final
-"E2E full-install status" step re-fails the job to preserve the visible red CI
-status. E2E 4/4 is skipped when 3/4 fails (no installed system to boot).
+**If you see this error on v2.7.4+:** It is a different failure — investigate
+whether the target disk structure is correct after `bootc install to-filesystem`.
 
-Upstream: `tuna-os/fisherman` is archived. File against `tuna-os/tuna-installer` if needed.
-
-**What to do when this fires:**
-- Check that `bootc installation complete` appears in the E2E 3/4 logs
-- If yes: it is the known fisherman hostname bug — ISO is OK to publish
-- If no: a real install failure — do not publish, investigate
+**`scripts/fisherman-install.sh` status:** Still present as a safety net but
+no longer load-bearing. Do not add new workaround logic to it — fix the root
+cause in fisherman instead.
