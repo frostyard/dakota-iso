@@ -181,3 +181,41 @@ must be replicated in the other. After PR fc0346d added primary/fallback logic t
 `dakota` copy, the `live` copy was left behind still pointing only at `tuna-os/tuna-installer`.
 Both files now use `projectbluefin/bootc-installer` as primary (with `--fail` so curl
 exits non-zero on HTTP errors) and fall back to `tuna-os/tuna-installer` automatically.
+
+### filesystem choice: always btrfs for dakota (2026-06)
+
+The `dakota-nvidia:stable` initramfs (built by freedesktop-sdk) includes `btrfs.ko`
+but **not** `xfs.ko`. Verify with:
+```bash
+# Extract and inspect the installed initramfs
+podman run --rm ghcr.io/projectbluefin/dakota-nvidia:stable bash -c '
+  python3 -c "
+data = open(\"/usr/lib/modules/7.0.7/initramfs.img\", \"rb\").read()
+idx = data.find(b\"TRAILER!!!\")
+after = (idx + 10 + 511) & ~511
+import subprocess, sys
+payload = data[after:]
+open(\"/tmp/p.zst\", \"wb\").write(payload)
+"
+  zstdcat /tmp/p.zst | cpio -it 2>/dev/null | grep -iE "xfs|btrfs"
+'
+```
+
+Always use `filesystem: btrfs` in fisherman recipes. Do NOT use `btrfsSubvolumes: true`
+— the subvolume setup interacts poorly with bootc's `root-mount-spec` config injection
+(see `docs/ci.md` for the full root cause chain).
+
+### root-mount-spec injection: how and why (2026-06)
+
+`bootc install to-filesystem` auto-detects the root filesystem UUID using `findmnt`
+inside a nested `podman run`. Inside that container, the udev database is not mounted,
+so `findmnt --output UUID` returns empty and the install fails.
+
+The `iso-sd-boot` recipe in the justfile injects `root-mount-spec = 'LABEL=root'` into
+`/usr/lib/bootc/install/00-defaults.toml` inside the squashed OCI payload before
+building the squashfs. This is safe because fisherman always formats with `-L root`.
+
+If you see `No filesystem uuid found in target root` — check that:
+1. The `.bootc-root-mount.toml` was created in `output/`
+2. The `buildah copy` + `buildah run` steps ran (look for `Squashing` line in build log)
+3. The injected config has no duplicate `[install]` section headers

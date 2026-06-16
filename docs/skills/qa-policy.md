@@ -170,3 +170,23 @@ See the size invariant table above and [docs/ci.md](../ci.md) for the double-emb
 **What happened:** Plain install E2E formats the root partition as XFS, but `dakota-nvidia:stable` initramfs ships `btrfs.ko` and `erofs.ko` — not `xfs.ko`. Installed system always boots to emergency mode.
 
 **See:** [#100](https://github.com/projectbluefin/dakota-iso/issues/100)
+
+---
+
+## Filesystem and install verification (2026-06)
+
+### Always verify btrfs, never xfs for dakota
+
+The `dakota-nvidia:stable` initramfs has `btrfs.ko` but not `xfs.ko`. An XFS install
+**will appear to succeed** but the installed system drops to emergency mode on first boot
+(`sysroot.mount` fails). The plain E2E gate (`just debug=1 plain-e2e dakota`) will
+catch this — but only if you actually run it and check that the **installed system boots**,
+not just that the install completes.
+
+### The hostname-fix wrapper catches a common fisherman failure
+
+`scripts/fisherman-install.sh` wraps fisherman and patches `/etc/hostname` manually
+when fisherman's internal hostname write fails on composefs deployments. If you see
+`fisherman: fatal: writing hostname:` in the install log, the wrapper should handle it.
+If the wrapper exits non-zero anyway, check that the condition in `fisherman-install.sh`
+matches the error message from the fisherman version in the live ISO.

@@ -390,3 +390,85 @@ This limits automatic R2 growth to ~2 objects/month (dated + latest overwrite).
 For mid-cycle releases (e.g. a new named alpha), trigger manually and then
 promote the dated ISO to the named slot via `rclone copyto` as documented in
 `docs/r2-promotion.md`.
+
+### btrfs composefs install — root cause chain and fixes (2026-06)
+
+**Context:** dakota-nvidia:stable uses GNOME OS / freedesktop-sdk. Its initramfs
+(built by the freedesktop-sdk pipeline) includes `btrfs.ko`, `erofs.ko`, `exfat.ko`,
+and `squashfs.ko` — but **not** `xfs.ko`. Any attempt to install with `filesystem: xfs`
+succeeds but produces a system that drops to emergency mode on first boot because the
+initramfs cannot load the XFS driver to mount the root partition.
+
+**Fix:** Set `filesystem: btrfs` everywhere — `live/src/etc/bootc-installer/images.json`,
+all justfile install recipes (luks, plain, enospc-gate). `btrfs.ko` IS in the initramfs.
+
+---
+
+**Bug 2 — `images.json` overrides the fisherman CLI recipe**
+
+`fisherman <recipe.json>` reads the recipe for `disk` and `image`, but looks up
+`filesystem` from `/etc/bootc-installer/images.json` on the host, not from the recipe
+JSON. Changing `"filesystem"` in the CLI recipe has no effect. The canonical place to
+set the default filesystem is `images.json` baked into the live container.
+
+---
+
+**Bug 3 — bootc UUID auto-detect fails inside nested containers**
+
+`bootc install to-filesystem` uses `findmnt --mountpoint /target --output UUID` to
+discover the root filesystem UUID. Inside fisherman's `podman run --privileged` inner
+container, `findmnt` cannot read the udev database (`/run/udev` is not mounted), so
+the UUID column is always empty and the install fails with:
+```
+error: Installing to filesystem: No filesystem uuid found in target root
+```
+
+**Fix:** Inject `root-mount-spec = 'LABEL=root'` into the bootc install config before
+squashing the OCI payload. fisherman always formats root partitions with `-L root`, so
+`LABEL=root` is a stable, reliable mount spec that bypasses UUID detection entirely.
+
+**How injection works:**
+```
+buildah from --pull-never ${PAYLOAD_IMAGE}
+echo "root-mount-spec = 'LABEL=root'" > .bootc-root-mount.toml
+buildah copy ${CTR} .bootc-root-mount.toml /tmp/.bootc-root-mount.toml
+buildah run  ${CTR} -- sh -c 'cat /tmp/.bootc-root-mount.toml >> /usr/lib/bootc/install/00-defaults.toml'
+buildah commit --squash ...
+```
+This is done in the `iso-sd-boot` recipe in `justfile` before buildah commit.
+
+---
+
+**Bug 4 — `btrfsSubvolumes: true` + `root-mount-spec` config = missing `rootflags=subvol=@`**
+
+When `btrfsSubvolumes: true` is set in the fisherman recipe, fisherman creates `@`,
+`@home`, `@snapshots` subvolumes and remounts with `subvol=@,compress=zstd:1`. bootc
+installs the OS into the `@` subvolume. When booting, the initramfs needs
+`rootflags=subvol=@` in the kernel cmdline to mount the right subvolume.
+
+bootc DOES add `rootflags=subvol=@` automatically — but ONLY when it discovers the UUID
+by itself (the `else` branch). When `root-mount-spec` is provided via config file, the
+config branch returns `kargs: Vec::new()` (no `rootflags`). The `kargs` config field
+in `[install]` section was tested but is not applied in the `to-filesystem` code path.
+
+**Fix:** Remove `btrfsSubvolumes` entirely. Plain btrfs (root at subvolid=5) works
+correctly with composefs. The OS is installed at the btrfs root, `root=LABEL=root`
+mounts it, no subvolume flags needed.
+
+---
+
+**Bug 5 — fisherman hostname-fix condition missed new error format**
+
+`fisherman-install.sh` detects hostname-write failures and patches the deployed `/etc/hostname`
+manually. The original condition required BOTH `"writing hostname"` AND
+`"ostree admin --print-current-dir"` in the fisherman log. New fisherman emits:
+```
+fisherman: fatal: writing hostname: finding composefs deploy etc: reading composefs deploy base
+/mnt/fisherman-target/state/deploy: open /mnt/fisherman-target/state/deploy: no such file or directory
+```
+No `ostree admin` string → condition failed → install errored despite the OS being
+fully installed.
+
+**Fix:** `fisherman-install.sh` now matches `"writing hostname"` AND any of:
+- `"ostree admin --print-current-dir"` (old fisherman)
+- `"composefs deploy"` or `"state/deploy"` or `"no such file or directory"` (new fisherman)
