@@ -171,11 +171,67 @@ jobs:
             ${{ steps.checksum.outputs.path }}
           retention-days: 7
 
+      - name: Boot verification (UEFI + serial)
+        id: boot_verify
+        if: steps.should_build.outputs.build == 'true'
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          sudo apt-get install -y qemu-system-x86 ovmf socat imagemagick -qq
+
+          ISO="${{ steps.iso.outputs.path }}"
+          EFI_CODE=""; EFI_VARS=""
+          for f in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
+            [ -f "$f" ] && EFI_CODE="$f" && break
+          done
+          for f in /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd; do
+            if [ -f "$f" ]; then cp "$f" /tmp/EFI_VARS.fd; EFI_VARS="/tmp/EFI_VARS.fd"; break; fi
+          done
+
+          PFLASH=()
+          if [ -n "$EFI_CODE" ] && [ -n "$EFI_VARS" ]; then
+            PFLASH+=(-drive "if=pflash,format=raw,readonly=on,file=$EFI_CODE")
+            PFLASH+=(-drive "if=pflash,format=raw,file=$EFI_VARS")
+          fi
+
+          sudo qemu-system-x86_64 \
+            -machine type=q35,accel=kvm \
+            -cpu host -m 4G -smp 2 \
+            "${PFLASH[@]}" \
+            -cdrom "$ISO" -boot d \
+            -monitor unix:/tmp/qemu-monitor.sock,server,nowait \
+            -serial file:/tmp/serial.log \
+            -display none -daemonize
+
+          for i in $(seq 1 30); do [ -S /tmp/qemu-monitor.sock ] && break; sleep 2; done
+
+          echo "==> Waiting up to 5 minutes for BLUEFIN_LIVE_READY..."
+          for i in $(seq 1 60); do
+            sudo grep -qE "BLUEFIN_LIVE_READY|DAKOTA_LIVE_READY|Finished live-ready\.service" \
+              /tmp/serial.log 2>/dev/null && \
+              { echo "==> Ready after $((i*5))s"; break; }
+            [ "$i" -eq 60 ] && echo "WARNING: timed out" || true
+            sleep 5
+          done
+
+          echo "screendump /tmp/screenshot.ppm" | \
+            sudo socat - UNIX-CONNECT:/tmp/qemu-monitor.sock || true
+          sleep 2
+          sudo test -f /tmp/screenshot.ppm && \
+            sudo convert /tmp/screenshot.ppm screenshot.png 2>/dev/null || true
+          echo "quit" | sudo socat - UNIX-CONNECT:/tmp/qemu-monitor.sock || true
+
+          sudo grep -qE "BLUEFIN_LIVE_READY|DAKOTA_LIVE_READY|Finished live-ready\.service" \
+            /tmp/serial.log || \
+            { echo "ERROR: live environment did not reach ready state"
+              sudo tail -50 /tmp/serial.log; exit 1; }
+
       - name: Upload ISO to Cloudflare R2
         if: >
           steps.should_build.outputs.build == 'true' &&
           inputs.skip_upload != true &&
-          github.event_name != 'pull_request'
+          github.event_name != 'pull_request' &&
+          steps.boot_verify.outcome == 'success'
         env:
           RCLONE_CONFIG_R2_TYPE: s3
           RCLONE_CONFIG_R2_PROVIDER: Cloudflare
@@ -198,3 +254,9 @@ jobs:
           rclone copyto --log-level INFO --s3-no-check-bucket "R2:testing/${DATED}" "R2:testing/${LATEST}"
           rclone copyto --log-level INFO --s3-no-check-bucket "R2:testing/${DATED}-CHECKSUM" "R2:testing/${LATEST_CHECKSUM}"
           echo "Published: ${DATED} → ${LATEST}"
+
+      - name: Boot verification status
+        if: always() && steps.boot_verify.outcome == 'failure'
+        run: |
+          echo "::error::Bluefin ISO failed the UEFI smoke boot — upload was skipped"
+          exit 1
