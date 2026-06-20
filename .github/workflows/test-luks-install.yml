@@ -45,6 +45,9 @@ jobs:
         with:
           tool: just
 
+      - name: Install test dependencies
+        run: pip install pytest
+
       - name: Run unit tests
         run: just test
 
