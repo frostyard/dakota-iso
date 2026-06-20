@@ -161,32 +161,41 @@ class TestXfsprogs(unittest.TestCase):
         )
 
     def test_containerfile_copies_mkfs_xfs_shared_libs(self):
-        """Final stage must COPY all shared library deps of mkfs.xfs.
+        """Final stage must COPY the Debian-specific shared library deps of mkfs.xfs.
 
-        Copying the binary without its deps produces a live image where
-        mkfs.xfs exists but fails at runtime with a missing shared library
-        error — silently passing all unit tests while breaking every XFS
-        install.  This test ensures the four non-glibc deps are present.
+        mkfs.xfs needs: libblkid.so.1  libuuid.so.1  libinih.so.1  liburcu.so.8
 
-        Deps from: ldd /usr/sbin/mkfs.xfs on debian:sid (non-glibc only):
-          libblkid.so.1  libuuid.so.1  libinih.so.1  liburcu.so.8
+        libblkid.so.1 and libuuid.so.1 are provided by the TARGET base image
+        (freedesktop-sdk for dakota, Fedora for bluefin) at the correct version.
+        Do NOT copy them from Debian — the Debian bookworm version only has
+        BLKID_2_21 while the system sfdisk/libfdisk requires BLKID_2_40, and
+        overwriting the system copy breaks sfdisk with "version BLKID_2_40 not found".
+
+        Only libinih.so.1 and liburcu.so.8 must be copied from Debian:
+          - libinih: Fedora ships libinih.so.0, xfsprogs needs .so.1
+          - liburcu: not always present in base images
         """
         content = CONTAINERFILE.read_text()
-        required_libs = [
+        # These two are genuinely absent/wrong-version in target base images.
+        required_from_debian = [
             "libinih.so",
             "liburcu.so",
-            "libblkid.so",
-            "libuuid.so",
         ]
-        for lib in required_libs:
+        for lib in required_from_debian:
             self.assertIn(
                 lib,
                 content,
                 f"Containerfile final stage is missing COPY for {lib} — "
-                "mkfs.xfs will fail at runtime with a missing shared library "
-                "error on any image that does not already ship this library "
-                "(e.g. GnomeOS/dakota).  Add it to the COPY block alongside "
-                "mkfs.xfs.",
+                "mkfs.xfs will fail at runtime. Add it to the COPY block.",
+            )
+        # libblkid and libuuid must NOT be copied from Debian — base image
+        # provides a newer version; overwriting breaks sfdisk (BLKID_2_40).
+        for lib in ("libblkid.so", "libuuid.so"):
+            self.assertNotIn(
+                f"COPY --from=initramfs-builder\n    /usr/lib/x86_64-linux-gnu/{lib}",
+                content,
+                f"Containerfile must not copy {lib} from Debian — base image "
+                "ships a newer version; overwriting it breaks sfdisk.",
             )
 
 
