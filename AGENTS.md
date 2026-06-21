@@ -161,6 +161,7 @@ for this repo. When you fix a bug or discover a pattern, add a lesson here.
 | **Label workflow** | [`docs/skills/label-workflow.md`](docs/skills/label-workflow.md) | Issue lifecycle, labels, PR queue |
 | **Human gates** | [`docs/skills/human-gates.md`](docs/skills/human-gates.md) | When to stop and ask a human |
 | **Skill improvement** | [`docs/skills/skill-improvement.md`](docs/skills/skill-improvement.md) | Writing skill updates in the same PR |
+| **Skill drift CI** | [`docs/skills/skill-drift.md`](docs/skills/skill-drift.md) | Skill-drift check failing on a PR |
 
 ---
 
@@ -189,9 +190,12 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
 ### Mandatory pre-commit checks
 
 ```bash
-# Before every commit — these must pass:
-just --list        # verify justfile is parseable (no just check target yet)
+# Before every commit — both must pass:
+just --list                    # verify justfile is parseable
+pre-commit run --all-files     # lint, yaml/json hygiene, no floating action tags
 ```
+
+The `skill-drift.yml` CI check warns when a PR changes implementation files without updating a matching skill doc. Treat warnings as hard requirements.
 
 ### Agent environment constraints
 
@@ -244,9 +248,9 @@ just --list        # verify justfile is parseable (no just check target yet)
 
 Read-only `gh api` calls to inspect `ublue-os` repos are permitted. No writes of any kind.
 
-**`ublue-os` image names are legacy.** All active images have migrated to `ghcr.io/projectbluefin/`.  
-Never write `ublue-os` into a `payload_ref`, `base_imgref`, `nvidia_imgref`, or `images.json`.  
-If you see a `ublue-os` ref in source, it is a stale artifact — replace it with the correct `projectbluefin` image.  
+**`ublue-os` image names are legacy.** All active images have migrated to `ghcr.io/projectbluefin/`.
+Never write `ublue-os` into a `payload_ref`, `base_imgref`, `nvidia_imgref`, or `images.json`.
+If you see a `ublue-os` ref in source, it is a stale artifact — replace it with the correct `projectbluefin` image.
 Verify the correct name before replacing: read `execute-release.yml` in the source repo or run `skopeo list-tags`. Do **not** guess.
 
 ---
