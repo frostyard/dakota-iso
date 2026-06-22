@@ -194,36 +194,20 @@ if [[ -n "${OCI_IMAGE}" ]]; then
         rm -rf "${CS_STAGING}"
         echo ">>> [live-squashfs] VFS store embedded: $(du -sh "${SFS_ROOT}/var/lib/containers/storage" | cut -f1)"
     else
-        # Non-composefs (standard-ostree): import into overlay containers-storage.
-        # MUST squash to 1 layer before embedding.
-        # bluefin-nvidia has ~120 OCI layers; without squashing all ~120 layer blobs
-        # land inside the squashfs → ~8 GB store → 12 GB final ISO.
-        # Squashing to 1 layer first reduces store to ~4 GB → ~6 GB final ISO.
-        # Embed at /usr/lib/containers/storage (additionalimagestore).
-        # configure-live.sh sets storage.conf: driver=overlay, additionalimagestores=["/usr/lib/containers/storage"]
-        # bootcDirect resolves containers-storage:<ref> from the read-only squashfs.
-        echo ">>> [live-squashfs] embedding OCI image ${OCI_IMAGE} into overlay containers-storage (non-composefs, squash to 1 layer) ..."
+        # Non-composefs (standard-ostree): commit WITHOUT --squash to preserve
+        # the original layer structure.  Each layer blob is small and fits in the
+        # VM's overlay tmpfs during bootcDirect install.  Overlay containers-storage
+        # stores layer diffs efficiently; squashfs compression handles the rest.
+        # Mirrors projectbluefin/iso (which uses podman save, no squash).
+        echo ">>> [live-squashfs] embedding OCI image ${OCI_IMAGE} into overlay containers-storage (non-composefs, preserving layers) ..."
 
-        # Squash to 1 layer and store as oci-archive tar.
         printf '[install]\nroot-mount-spec = "LABEL=root"\n' > "${WORK}/bootc-root-mount.toml"
         INJECT_CTR="$(buildah from --pull-never "${OCI_IMAGE}")"
         buildah copy "${INJECT_CTR}" "${WORK}/bootc-root-mount.toml" /tmp/.bootc-root-mount.toml
         buildah run  "${INJECT_CTR}" -- sh -c 'mkdir -p /usr/lib/bootc/install && cp /tmp/.bootc-root-mount.toml /usr/lib/bootc/install/00-defaults.toml && rm /tmp/.bootc-root-mount.toml'
         OCI_ARCHIVE="${WORK}/payload.oci.tar"
-        buildah commit --squash "${INJECT_CTR}" "oci-archive:${OCI_ARCHIVE}:${OCI_IMAGE}"
+        buildah commit "${INJECT_CTR}" "oci-archive:${OCI_ARCHIVE}:${OCI_IMAGE}"
         buildah rm "${INJECT_CTR}"
-
-        # Update ostree.final-diffid to the squashed layer's diff_id.
-        ANNOT_CTR="$(buildah from --pull-never "oci-archive:${OCI_ARCHIVE}:${OCI_IMAGE}")"
-        SQUASHED_DIFFID="$(skopeo inspect --config "oci-archive:${OCI_ARCHIVE}:${OCI_IMAGE}" 2>/dev/null | \
-            python3 -c 'import json,sys; c=json.load(sys.stdin); print(c["rootfs"]["diff_ids"][0])' 2>/dev/null || true)"
-        if [[ -n "${SQUASHED_DIFFID}" ]]; then
-            echo ">>> [live-squashfs] updating ostree.final-diffid to ${SQUASHED_DIFFID} (non-composefs) ..."
-            buildah config --label "ostree.final-diffid=${SQUASHED_DIFFID}" "${ANNOT_CTR}"
-            buildah config --annotation "ostree.final-diffid=${SQUASHED_DIFFID}" "${ANNOT_CTR}"
-        fi
-        buildah commit --squash "${ANNOT_CTR}" "oci-archive:${OCI_ARCHIVE}:${OCI_IMAGE}"
-        buildah rm "${ANNOT_CTR}"
 
         # Import into overlay containers-storage at staging dir, then copy to squashfs root.
         CS_STAGING="${WORK}/cs-staging"

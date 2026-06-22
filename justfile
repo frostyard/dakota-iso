@@ -244,25 +244,13 @@ iso-sd-boot target:
         _ns "buildah commit --squash '${ANNOT_CTR}' 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}'"
         _ns "buildah rm '${ANNOT_CTR}'"
     else
-        # Non-composefs (bluefin, lts-hwe): MUST squash to 1 layer before embedding.
-        # bluefin-nvidia has ~120 OCI layers; embedding without squashing writes all
-        # ~120 layer blobs into the squashfs → ~8 GB store → 12 GB ISO.
-        # Squashing to 1 layer first reduces store to ~4 GB → ~6 GB final ISO.
-        # Store as oci-archive tar, then import into overlay containers-storage at
-        # /usr/lib/containers/storage (additionalimagestore). Mirrors projectbluefin/iso.
-        _ns "buildah commit --squash '${INJECT_CTR}' 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}'"
+        # Non-composefs (bluefin, lts-hwe): commit WITHOUT --squash to preserve
+        # the original layer structure.  Each layer blob is small and fits in the
+        # VM's overlay tmpfs during bootcDirect install.  Overlay containers-storage
+        # stores layer diffs efficiently; squashfs compression handles the rest.
+        # Mirrors projectbluefin/iso (which uses podman save, no squash).
+        _ns "buildah commit '${INJECT_CTR}' 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}'"
         _ns "buildah rm '${INJECT_CTR}'"
-        # Update ostree.final-diffid to point to the new squashed layer's diff_id.
-        ANNOT_CTR=$(_ns "buildah from --pull-never 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}'")
-        SQUASHED_DIFFID=$(_ns "skopeo inspect --config 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}' 2>/dev/null" | \
-            python3 -c 'import json,sys; c=json.load(sys.stdin); print(c["rootfs"]["diff_ids"][0])' 2>/dev/null || true)
-        if [[ -n "${SQUASHED_DIFFID}" ]]; then
-            echo "Updating ostree.final-diffid to ${SQUASHED_DIFFID} (non-composefs mode)"
-            _ns "buildah config --label 'ostree.final-diffid=${SQUASHED_DIFFID}' '${ANNOT_CTR}'"
-            _ns "buildah config --annotation 'ostree.final-diffid=${SQUASHED_DIFFID}' '${ANNOT_CTR}'"
-        fi
-        _ns "buildah commit --squash '${ANNOT_CTR}' 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}'"
-        _ns "buildah rm '${ANNOT_CTR}'"
     fi
 
     podman rmi "${PAYLOAD_IMAGE}" || true
