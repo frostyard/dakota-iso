@@ -347,8 +347,7 @@ with open("$SCRIPT_DIR/etc/bootc-installer/recipe.json") as f:
 # For composefs (dakota): containers-storage: ref in the VFS store, podman-based
 #   install.
 # For non-composefs (bluefin, lts): empty image triggers bootcDirect — fisherman
-#   runs `bootc install to-filesystem --source-imgref containers-storage:<ref>`
-#   natively, resolving the payload from the overlay additionalimagestore baked
+#   runs bootc install --source-imgref containers-storage:<ref> natively,
 #   into the squashfs at /usr/lib/containers/storage.  Mirrors projectbluefin/iso.
 if "$COMPOSEFS" == "true":
     recipe["image"] = "containers-storage:$NVIDIA_IMGREF"
