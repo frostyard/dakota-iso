@@ -132,8 +132,8 @@ fi
 # Detect composefs from the recipe.json baked into the live container.
 COMPOSEFS_BACKEND=false
 if podman run --rm --entrypoint="" "${IMAGE}" \
-       sh -c 'python3 -c "import json; print(json.load(open("/etc/bootc-installer/recipe.json")).get(\"composeFsBackend\", False))"' \
-       2>/dev/null | grep -qi true; then
+       grep -qi '"composeFsBackend": *true' /etc/bootc-installer/recipe.json \
+       2>/dev/null; then
     COMPOSEFS_BACKEND=true
 fi
 echo ">>> [live-squashfs] composeFsBackend=${COMPOSEFS_BACKEND}"

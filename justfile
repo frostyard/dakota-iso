@@ -35,9 +35,11 @@ fisher_repo := "/tmp/fisherman/fisherman"
 # Example: just compression=release iso-sd-boot dakota
 compression := "fast"
 
-# Map target to filesystem: dakota/stable=btrfs, lts=btrfs. Default=btrfs.
+# Map target to filesystem: dakota/stable=btrfs, lts=xfs. Default=btrfs.
+# lts (bluefin-lts-hwe) uses XFS inside LVM by default — the interactive
+# installer defaults to XFS for LTS so E2E must match.
 _filesystem_for target:
-    @echo "btrfs"
+    @if [ "{{ target }}" = "lts" ]; then echo "xfs"; else echo "btrfs"; fi
 
 # Create an XFS loopback mount at /mnt for faster VFS import.
 #
@@ -1160,9 +1162,11 @@ luks-install-qemu target:
         fi
     fi
     echo "Install complete. Shutting down live QEMU..."
-    echo "system_powerdown" | socat - "UNIX-CONNECT:{{luks-qemu-monitor-live}}" 2>/dev/null || true
+    SOCAT_PREFIX=""
+    if ! test -w "{{luks-qemu-monitor-live}}" 2>/dev/null; then SOCAT_PREFIX="sudo"; fi
+    echo "system_powerdown" | $SOCAT_PREFIX socat - "UNIX-CONNECT:{{luks-qemu-monitor-live}}" 2>/dev/null || true
     sleep 5
-    echo "quit" | socat - "UNIX-CONNECT:{{luks-qemu-monitor-live}}" 2>/dev/null || true
+    echo "quit" | $SOCAT_PREFIX socat - "UNIX-CONNECT:{{luks-qemu-monitor-live}}" 2>/dev/null || true
 
 # Boot the installed disk in QEMU (no ISO). Called after luks-install-qemu.
 luks-boot-qemu-installed target:
@@ -1537,9 +1541,11 @@ plain-install-qemu target:
         fi
     fi
     echo "Install complete. Shutting down live QEMU..."
-    echo "system_powerdown" | socat - "UNIX-CONNECT:{{plain-qemu-monitor-live}}" 2>/dev/null || true
+    SOCAT_PREFIX=""
+    if ! test -w "{{plain-qemu-monitor-live}}" 2>/dev/null; then SOCAT_PREFIX="sudo"; fi
+    echo "system_powerdown" | $SOCAT_PREFIX socat - "UNIX-CONNECT:{{plain-qemu-monitor-live}}" 2>/dev/null || true
     sleep 5
-    echo "quit" | socat - "UNIX-CONNECT:{{plain-qemu-monitor-live}}" 2>/dev/null || true
+    echo "quit" | $SOCAT_PREFIX socat - "UNIX-CONNECT:{{plain-qemu-monitor-live}}" 2>/dev/null || true
 
 # Boot the installed disk (no ISO) after plain-install-qemu.
 plain-boot-qemu-installed target:
@@ -1608,9 +1614,11 @@ plain-verify-qemu target:
         LOG=$(cat "$SERIAL" 2>/dev/null || true)
         if echo "$LOG" | grep -q "Reached target.*Graphical\|Reached target.*Multi-User\|login:"; then
             echo "✅ Installed system boot verified — plain composefs install succeeded"
-            echo "screendump $SCREENSHOT" | socat - "UNIX-CONNECT:$MONITOR" 2>/dev/null || true
+            SOCAT_PREFIX=""
+            if ! test -w "$MONITOR" 2>/dev/null; then SOCAT_PREFIX="sudo"; fi
+            echo "screendump $SCREENSHOT" | $SOCAT_PREFIX socat - "UNIX-CONNECT:$MONITOR" 2>/dev/null || true
             bash "dakota/src/show-screenshot.sh" "$SCREENSHOT" "Installed system" 2>/dev/null || true
-            echo "quit" | socat - "UNIX-CONNECT:$MONITOR" 2>/dev/null || true
+            echo "quit" | $SOCAT_PREFIX socat - "UNIX-CONNECT:$MONITOR" 2>/dev/null || true
             exit 0
         fi
         # Detect emergency shell / kernel panic — fast-fail
@@ -1625,5 +1633,7 @@ plain-verify-qemu target:
     echo "❌ Timeout: installed system did not reach graphical target in 5 minutes" >&2
     echo "--- last 30 lines of serial log ---" >&2
     cat "$SERIAL" 2>/dev/null | tail -30 >&2
-    echo "screendump $SCREENSHOT" | socat - "UNIX-CONNECT:$MONITOR" 2>/dev/null || true
+    SOCAT_PREFIX=""
+    if ! test -w "$MONITOR" 2>/dev/null; then SOCAT_PREFIX="sudo"; fi
+    echo "screendump $SCREENSHOT" | $SOCAT_PREFIX socat - "UNIX-CONNECT:$MONITOR" 2>/dev/null || true
     exit 1
