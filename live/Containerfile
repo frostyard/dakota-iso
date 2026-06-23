@@ -30,22 +30,29 @@ FROM ghcr.io/${REGISTRY}/${TARGET}:${TAG} AS ref
 # If dracut is available on the target image, build the initramfs there so
 # the udev rules, blkid, and cdrom_id all match the kernel. Falls back to
 # the Debian cross-build stage (2b) for images that lack a package manager
-# (e.g. GNOME OS / dakota).
+# (e.g. GNOME OS / dakota), or when native dracut fails (e.g. fc44 images
+# where dracut's shutdown module cannot find poweroff/reboot/halt symlinks
+# in a container build context, or Fedora-based images missing /root).
 FROM ref AS initramfs-native
-RUN set -ex; \
+RUN set -e; \
     kernel=$(ls /usr/lib/modules | sort -V | tail -1); \
     if command -v dracut >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1 || command -v rpm >/dev/null 2>&1; then \
         # Ensure dracut + dracut-live module are installed
         command -v dnf >/dev/null 2>&1 && \
             dnf install -y dracut dracut-live --setopt=install_weak_deps=False -q 2>/dev/null || true; \
-        command -v dracut >/dev/null 2>&1 || { echo 'no dracut after install attempt'; touch /tmp/no-native-dracut; exit 0; }; \
-        dracut --list-modules 2>/dev/null | grep -q dmsquash-live || { echo 'dmsquash-live module not found'; touch /tmp/no-native-dracut; exit 0; }; \
+        command -v dracut >/dev/null 2>&1 || { echo 'no dracut after install attempt — falling back to Debian cross-build'; echo debian > /tmp/dracut-status; touch /tmp/initramfs.img; exit 0; }; \
+        dracut --list-modules 2>/dev/null | grep -q dmsquash-live || { echo 'dmsquash-live module not found — falling back to Debian cross-build'; echo debian > /tmp/dracut-status; touch /tmp/initramfs.img; exit 0; }; \
         echo "Building initramfs natively for kernel ${kernel}"; \
-        dracut -v --force --reproducible --no-hostonly \
-            --add "dmsquash-live" \
-            /tmp/initramfs.img "${kernel}"; \
-        ls -lh /tmp/initramfs.img; \
-        echo native > /tmp/dracut-status; \
+        if dracut -v --force --reproducible --no-hostonly \
+                --add "dmsquash-live" \
+                /tmp/initramfs.img "${kernel}"; then \
+            ls -lh /tmp/initramfs.img; \
+            echo native > /tmp/dracut-status; \
+        else \
+            echo "Native dracut failed (exit $?) — falling back to Debian cross-build"; \
+            echo debian > /tmp/dracut-status; \
+            touch /tmp/initramfs.img; \
+        fi; \
     else \
         echo "Target has no dracut/rpm — will use Debian cross-build"; \
         echo debian > /tmp/dracut-status; \
