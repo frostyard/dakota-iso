@@ -153,7 +153,7 @@ jobs:
           # and runs VCS stamping against the user-owned /tmp/fisherman clone — both
           # break under sudo. QEMU/KVM access uses an internal sudo fallback in the
           # recipe, and all guest-side install steps run via ssh with guest sudo.
-          just luks-test-qemu ${{ matrix.variant }}
+          just luks-test-qemu ${{ matrix.variant }} ${{ matrix.installer_channel }}
           echo "duration=$(( $(date +%s) - START ))" >> "$GITHUB_OUTPUT"
         continue-on-error: true
 

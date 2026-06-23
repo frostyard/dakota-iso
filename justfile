@@ -959,11 +959,11 @@ e2e target:
 
 # Run the full LUKS end-to-end test in QEMU (CI entry point).
 # Builds nothing — expects the ISO to already exist in {{output_dir}}.
-luks-test-qemu target:
+luks-test-qemu target installer_channel="dev":
     #!/usr/bin/bash
     set -euo pipefail
-    DISK="/var/tmp/dakota-luks-install-{{target}}.qcow2"
-    SCRATCH="/var/tmp/dakota-luks-scratch-{{target}}.img"
+    DISK="/var/tmp/dakota-luks-install-{{target}}-{{installer_channel}}.qcow2"
+    SCRATCH="/var/tmp/dakota-luks-scratch-{{target}}-{{installer_channel}}.img"
     just luks-qemu-disk="$DISK" luks-scratch-disk="$SCRATCH" luks-boot-qemu-live {{target}}
     just luks-qemu-ssh-port={{luks-qemu-ssh-port}} luks-install-qemu {{target}}
     just luks-qemu-disk="$DISK" luks-scratch-disk="$SCRATCH" luks-boot-qemu-installed {{target}}
