@@ -1189,8 +1189,15 @@ luks-boot-qemu-installed target:
 
     echo "Booting installed disk: {{luks-qemu-disk}}"
     # The install recipe triggers guest shutdown, but the daemonized QEMU
-    # may take a moment to flush and release the qcow2 file lock.
-    sleep 5
+    # may hold the qcow2 file lock briefly after the guest exits.
+    # Wait up to 30s for the QEMU process (and its lock) to disappear.
+    for i in {1..15}; do
+        if ! sudo pgrep -f "qemu-system.*dakota-luks" >/dev/null 2>&1; then
+            break
+        fi
+        echo "Waiting for live QEMU to exit (attempt $i)..."
+        sleep 2
+    done
     # KVM access: try direct, then sudo, then fall back to TCG
     QEMU_ACCEL="-accel kvm"
     QEMU_PREFIX=""
