@@ -1188,11 +1188,12 @@ luks-boot-qemu-installed target:
     rm -f "{{luks-qemu-monitor-installed}}" "{{luks-qemu-serial-installed}}"
 
     echo "Booting installed disk: {{luks-qemu-disk}}"
-    # The install recipe triggers guest shutdown, but the daemonized QEMU
-    # may hold the qcow2 file lock briefly after the guest exits.
-    # Wait up to 30s for the QEMU process (and its lock) to disappear.
+    # The install recipe sends system_powerdown + quit via QEMU monitor
+    # but the daemonized QEMU may hold the qcow2 file lock briefly.
+    # Wait for the QEMU process matching THIS variant's disk to exit.
+    DISK_PATTERN="$(echo '{{luks-qemu-disk}}' | sed 's/\./\\./g')"
     for i in {1..15}; do
-        if ! sudo pgrep -f "qemu-system.*dakota-luks" >/dev/null 2>&1; then
+        if ! sudo pgrep -f "qemu-system.*${DISK_PATTERN}" >/dev/null 2>&1; then
             break
         fi
         echo "Waiting for live QEMU to exit (attempt $i)..."
