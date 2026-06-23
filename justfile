@@ -286,7 +286,9 @@ iso-sd-boot target:
         # Populate the offline OCI store in a staging dir.
         # Strategy mirrors scripts/build-live-squashfs.sh:
         #   composefs (dakota): import as VFS containers-storage → /var/lib/containers/storage
-        #   non-composefs (bluefin, lts): import as overlay containers-storage → /usr/lib/containers/storage
+        #   non-composefs (stable, lts): import as VFS containers-storage → /usr/lib/containers/storage
+        #   VFS required: live ISO rootfs is overlayfs; el10 (lts) lacks overlay-on-overlay.
+        #   Mirrors projectbluefin/iso commit 34fe6659.
         PAYLOAD_OCI='${OUTPUT_DIR}/{{target}}-payload.oci.tar'
         COMPOSEFS='${COMPOSEFS_BACKEND}'
 
@@ -316,15 +318,19 @@ iso-sd-boot target:
                 sh -c 'mkdir -p /tmp/cs-runroot /var/tmp && CONTAINERS_STORAGE_CONF=/tmp/st.conf skopeo copy oci-archive:/payload.oci.tar:'"${PAYLOAD_IMAGE}"' containers-storage:'"${PAYLOAD_IMAGE}"''
             rm -f \"\${PAYLOAD_OCI}\" \"\${STORAGE_CONF}\"
         else
-            # ── non-composefs path: overlay containers-storage ───────────────
-            # Import squashed oci-archive into overlay containers-storage at
-            # /usr/lib/containers/storage (additionalimagestore). Mirrors projectbluefin/iso.
+            # ── non-composefs path: VFS containers-storage ──────────────────
+            # Import oci-archive into VFS containers-storage at
+            # /usr/lib/containers/storage (additionalimagestore).
+            # Must use VFS: live ISO rootfs is overlayfs (dmsquash-live) and
+            # el10 (lts) lacks overlay-on-overlay. An overlay-format additional
+            # store silently fails → bootc writes blobs to /var/tmp → ENOSPC.
+            # Mirrors projectbluefin/iso commit 34fe6659.
             STORAGE_CONF=\"\$(mktemp '${OUTPUT_DIR}'/live-storage-XXXXXX.conf)\"
             SQUASHFS_STORAGE=\"\${CS_STAGING}/usr/lib/containers/storage\"
             mkdir -p \"\${SQUASHFS_STORAGE}\"
-            printf '[storage]\ndriver = \"overlay\"\nrunroot = \"/tmp/cs-runroot\"\ngraphroot = \"/vfs-storage\"\n' \
+            printf '[storage]\ndriver = \"vfs\"\nrunroot = \"/tmp/cs-runroot\"\ngraphroot = \"/vfs-storage\"\n' \
                 > \"\${STORAGE_CONF}\"
-            echo 'Importing squashed OCI into overlay containers-storage (non-composefs)...'
+            echo 'Importing OCI into VFS containers-storage (non-composefs)...'
             podman run --rm \
                 --privileged \
                 -v \"\${PAYLOAD_OCI}:/payload.oci.tar:ro\" \
