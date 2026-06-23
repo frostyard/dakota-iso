@@ -32,10 +32,16 @@ You are an agent in this loop. Your work compounds.
 
 ## Agent fast path
 
+> **Before using any tool or library: look up its docs via Context7 first. Always.**
+> bootc, xorriso, composefs, systemd-boot, skopeo, GitHub Actions — every tool has live, authoritative docs.
+> Pattern: `resolve-library-id` → `get-library-docs` → implement → cite the section.
+> Guessing, flag-hunting, and trial-and-error are banned. The docs exist. Read them.
+
 ```
 1. docs/SKILL.md                       # find the skill for your task
-2. docs/factory/agentic-model.md       # cross-repo rules (in projectbluefin/common)
-3. justfile                            # all build tasks go through here
+2. Context7: resolve the tool's library ID, read its docs, then act
+3. docs/factory/agentic-model.md       # cross-repo rules (in projectbluefin/common)
+4. justfile                            # all build tasks go through here
 ```
 
 ---
