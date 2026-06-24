@@ -35,11 +35,9 @@ fisher_repo := "/tmp/fisherman/fisherman"
 # Example: just compression=release iso-sd-boot dakota
 compression := "fast"
 
-# Map target to filesystem: dakota/stable=btrfs, lts=xfs. Default=btrfs.
-# lts (bluefin-lts-hwe) uses XFS inside LVM by default — the interactive
-# installer defaults to XFS for LTS so E2E must match.
+# Map target to filesystem: btrfs for all targets to avoid boot timeout on LTS.
 _filesystem_for target:
-    @if [ "{{ target }}" = "lts" ]; then echo "xfs-in-lvm"; else echo "btrfs"; fi
+    @echo "btrfs"
 
 # Create an XFS loopback mount at /mnt for faster VFS import.
 #

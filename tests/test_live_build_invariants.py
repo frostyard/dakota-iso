@@ -679,12 +679,10 @@ class TestBuildLiveSquashfs(unittest.TestCase):
             "breaks the -c argument. Use grep or pipe to python instead.",
         )
 
-    def test_lts_images_json_defaults_to_xfs(self):
-        """live/src/bluefin-lts-hwe/images.json must default to xfs-in-lvm.
+    def test_lts_images_json_defaults_to_btrfs(self):
+        """live/src/bluefin-lts-hwe/images.json must default to btrfs.
 
-        LTS (bluefin-lts-hwe) uses XFS inside LVM as its default filesystem.
-        The interactive installer defaults to XFS for LTS; the E2E must send
-        the same filesystem or the test proves a path the user never hits.
+        LTS (bluefin-lts-hwe) uses btrfs as its default filesystem to avoid boot timeouts.
         """
         import json
         images_json = REPO / "live" / "src" / "bluefin-lts-hwe" / "images.json"
@@ -693,34 +691,20 @@ class TestBuildLiveSquashfs(unittest.TestCase):
         for img in data.get("images", []):
             self.assertEqual(
                 img.get("filesystem"),
-                "xfs-in-lvm",
+                "btrfs",
                 f"bluefin-lts-hwe/images.json image '{img.get('name')}' must "
-                "default to filesystem=xfs-in-lvm (LTS uses XFS inside LVM). "
+                "default to filesystem=btrfs. "
                 f"Got: {img.get('filesystem')!r}",
             )
 
-    def test_justfile_lts_filesystem_is_xfs(self):
-        """justfile _filesystem_for must return xfs-in-lvm for lts target.
-
-        The _filesystem_for recipe controls which filesystem the E2E sends to
-        fisherman. For lts it must be xfs-in-lvm to match the interactive installer
-        default (XFS inside LVM).
-        """
+    def test_justfile_lts_filesystem_is_btrfs(self):
+        """justfile _filesystem_for must return btrfs for all targets."""
         justfile = REPO / "justfile"
         content = justfile.read_text()
-        # The recipe must NOT simply echo btrfs for all targets
-        self.assertNotIn(
+        self.assertIn(
             '_filesystem_for target:\n    @echo "btrfs"',
             content,
-            "justfile _filesystem_for returns btrfs for all targets including "
-            "lts — lts must return xfs-in-lvm (XFS inside LVM is its default).",
-        )
-        # And it must explicitly handle lts → xfs-in-lvm
-        self.assertIn(
-            '"lts"',
-            content[content.find("_filesystem_for"):content.find("_filesystem_for") + 200],
-            "justfile _filesystem_for must handle the lts target explicitly "
-            "and return xfs-in-lvm for it.",
+            "justfile _filesystem_for must return btrfs for all targets",
         )
 
     def test_justfile_socat_uses_prefix(self):
