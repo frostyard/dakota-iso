@@ -121,7 +121,15 @@ skopeo list-tags docker://ghcr.io/projectbluefin/<image>
 ```
 or read `execute-release.yml` in the source repo.
 
+### Production Stable and LTS Targets (stable, lts) (2026-06-25)
+
+The `stable` and `lts` targets are production-ready build variants corresponding to the main release channels:
+- **`stable`**: Builds the production release of Bluefin using `ghcr.io/projectbluefin/bluefin-nvidia:stable` and labeled `Bluefin Stable Live`.
+- **`lts`**: Builds the production release of Bluefin LTS using `ghcr.io/projectbluefin/bluefin-lts-hwe-nvidia:stable` and labeled `Bluefin LTS Live`.
+- In contrast to the `bluefin` and `bluefin-lts-hwe` developer targets (which track dev tags), these are specifically used for final release builds.
+
 ### systemd-boot title is controlled by live_title file (2026-06)
+
 
 Each variant directory contains a `live_title` file whose contents appear verbatim
 as the boot menu entry in systemd-boot and loopback.cfg:
