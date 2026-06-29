@@ -147,32 +147,27 @@ jobs:
         id: iso
         if: steps.should_build.outputs.build == 'true'
         run: |
-          DATE=$(date -u +%Y%m%d)
-          SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          echo "dated=${{ matrix.iso_name }}-${DATE}-${SHA}.iso" >> "$GITHUB_OUTPUT"
           echo "path=output/${{ matrix.iso_name }}.iso" >> "$GITHUB_OUTPUT"
+          echo "latest_name=${{ matrix.iso_name }}-latest.iso" >> "$GITHUB_OUTPUT"
 
       - name: Generate SHA256 checksum
         id: checksum
         if: steps.should_build.outputs.build == 'true'
         run: |
           ISO="${{ steps.iso.outputs.path }}"
-          DATED="${{ steps.iso.outputs.dated }}"
-          CHECKSUM_PATH="output/${DATED}-CHECKSUM"
-          LATEST_CHECKSUM_PATH="output/${{ matrix.iso_name }}-latest.iso-CHECKSUM"
-          sha256sum "$ISO" | sed "s|${ISO}|${DATED}|" | tee "$CHECKSUM_PATH"
-          sha256sum "$ISO" | sed "s|${ISO}|${{ matrix.iso_name }}-latest.iso|" > "$LATEST_CHECKSUM_PATH"
-          echo "path=${CHECKSUM_PATH}" >> "$GITHUB_OUTPUT"
+          LATEST_NAME="${{ steps.iso.outputs.latest_name }}"
+          LATEST_CHECKSUM_PATH="output/${LATEST_NAME}-CHECKSUM"
+          sha256sum "$ISO" | sed "s|${ISO}|${LATEST_NAME}|" > "$LATEST_CHECKSUM_PATH"
           echo "latest_path=${LATEST_CHECKSUM_PATH}" >> "$GITHUB_OUTPUT"
 
       - name: Upload ISO artifact
         if: steps.should_build.outputs.build == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${{ steps.iso.outputs.dated }}
+          name: ${{ matrix.iso_name }}-iso
           path: |
             ${{ steps.iso.outputs.path }}
-            ${{ steps.checksum.outputs.path }}
+            ${{ steps.checksum.outputs.latest_path }}
           retention-days: 7
 
       - name: Boot verification (UEFI + serial)
@@ -246,18 +241,21 @@ jobs:
         run: |
           sudo apt-get install -y rclone -qq
           ISO="${{ steps.iso.outputs.path }}"
-          DATED="${{ steps.iso.outputs.dated }}"
-          LATEST="${{ matrix.iso_name }}-latest.iso"
-          LATEST_CHECKSUM="${{ matrix.iso_name }}-latest.iso-CHECKSUM"
+          LATEST_NAME="${{ steps.iso.outputs.latest_name }}"
+          rclone copyto --log-level INFO --s3-no-check-bucket "$ISO" "R2:testing/${LATEST_NAME}"
+          rclone copyto --log-level INFO --s3-no-check-bucket "${{ steps.checksum.outputs.latest_path }}" "R2:testing/${LATEST_NAME}-CHECKSUM"
 
-          # Upload dated ISO + checksum
-          rclone copyto --log-level INFO --s3-no-check-bucket "$ISO" "R2:testing/${DATED}"
-          rclone copyto --log-level INFO --s3-no-check-bucket "${{ steps.checksum.outputs.path }}" "R2:testing/${DATED}-CHECKSUM"
-
-          # Update latest pointers (server-side copy)
-          rclone copyto --log-level INFO --s3-no-check-bucket "R2:testing/${DATED}" "R2:testing/${LATEST}"
-          rclone copyto --log-level INFO --s3-no-check-bucket "R2:testing/${DATED}-CHECKSUM" "R2:testing/${LATEST_CHECKSUM}"
-          echo "Published: ${DATED} → ${LATEST}"
+      - name: Publish latest URLs summary
+        if: >
+          steps.should_build.outputs.build == 'true' &&
+          inputs.skip_upload != true &&
+          github.event_name != 'pull_request' &&
+          steps.boot_verify.outcome == 'success'
+        run: |
+          LATEST_NAME="${{ steps.iso.outputs.latest_name }}"
+          echo "## Latest ISO URL (${{ matrix.variant }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [${LATEST_NAME}](https://projectbluefin.dev/${LATEST_NAME})" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [${LATEST_NAME}-CHECKSUM](https://projectbluefin.dev/${LATEST_NAME}-CHECKSUM)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Boot verification status
         if: always() && steps.boot_verify.outcome == 'failure'

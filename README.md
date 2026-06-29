@@ -2,13 +2,11 @@
 
 [![Build and Publish](https://github.com/projectbluefin/dakota-iso/actions/workflows/build-iso.yml/badge.svg)](https://github.com/projectbluefin/dakota-iso/actions/workflows/build-iso.yml)
 
-| Download | Checksum |
-|----------|----------|
-| Variant | Download | Checksum |
-|---------|----------|----------|
-| `dakota` | [⬇ dakota-live-latest.iso](https://projectbluefin.dev/dakota-live-latest.iso) | [checksum](https://projectbluefin.dev/dakota-live-latest.iso-CHECKSUM) | XX GB | Date | link to test | 
-| `stable` | [⬇ stable-live-latest.iso](https://projectbluefin.dev/stable-live-latest.iso) | [checksum](https://projectbluefin.dev/stable-live-latest.iso-CHECKSUM) |
-| `lts` | [⬇ lts-live-latest.iso](https://projectbluefin.dev/lts-live-latest.iso) | [checksum](https://projectbluefin.dev/lts-live-latest.iso-CHECKSUM) |
+| Variant | Download | Checksum | Size | Published (UTC) | Validation |
+|---------|----------|----------|------|-----------------|------------|
+| `dakota` | [⬇ `dakota-live-latest.iso`](https://projectbluefin.dev/dakota-live-latest.iso) | [checksum `8bbd377f…`](https://projectbluefin.dev/dakota-live-latest.iso-CHECKSUM) | 4.23 GiB | 2026-06-29 05:34 | [run #195](https://github.com/projectbluefin/dakota-iso/actions/runs/28348909146) |
+| `stable` | [⬇ `stable-live-latest.iso`](https://projectbluefin.dev/stable-live-latest.iso) | [checksum](https://projectbluefin.dev/stable-live-latest.iso-CHECKSUM) | — | — | — |
+| `lts` | [⬇ `lts-live-latest.iso`](https://projectbluefin.dev/lts-live-latest.iso) | [checksum](https://projectbluefin.dev/lts-live-latest.iso-CHECKSUM) | — | — | — |
 
 Builds bootable UEFI live ISOs from [Dakota](https://github.com/projectbluefin/dakota) and [Bluefin](https://github.com/projectbluefin/bluefin) images.
 

@@ -117,21 +117,16 @@ jobs:
       - name: Compute ISO name
         id: iso
         run: |
-          DATE=$(date -u +%Y%m%d)
-          SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          echo "dated=dakota-live-${DATE}-${SHA}.iso" >> "$GITHUB_OUTPUT"
           echo "path=output/dakota-live.iso" >> "$GITHUB_OUTPUT"
+          echo "latest_name=dakota-live-latest.iso" >> "$GITHUB_OUTPUT"
 
       - name: Generate SHA256 checksum
         id: checksum
         run: |
           ISO="${{ steps.iso.outputs.path }}"
-          DATED="${{ steps.iso.outputs.dated }}"
-          CHECKSUM_PATH="output/${DATED}-CHECKSUM"
-          LATEST_CHECKSUM_PATH="output/dakota-live-latest.iso-CHECKSUM"
-          sha256sum "$ISO" | sed "s|${ISO}|${DATED}|" | tee "$CHECKSUM_PATH"
-          sha256sum "$ISO" | sed "s|${ISO}|dakota-live-latest.iso|" > "$LATEST_CHECKSUM_PATH"
-          echo "path=${CHECKSUM_PATH}" >> "$GITHUB_OUTPUT"
+          LATEST_NAME="${{ steps.iso.outputs.latest_name }}"
+          LATEST_CHECKSUM_PATH="output/${LATEST_NAME}-CHECKSUM"
+          sha256sum "$ISO" | sed "s|${ISO}|${LATEST_NAME}|" > "$LATEST_CHECKSUM_PATH"
           echo "latest_path=${LATEST_CHECKSUM_PATH}" >> "$GITHUB_OUTPUT"
 
       # Patch production squashfs to enable sshd for E2E SSH access.
@@ -340,31 +335,33 @@ jobs:
         run: |
           sudo apt-get install -y rclone -qq
           ISO="${{ steps.iso.outputs.path }}"
-          DATED="${{ steps.iso.outputs.dated }}"
+          LATEST_NAME="${{ steps.iso.outputs.latest_name }}"
           rclone copyto --log-level INFO --s3-no-check-bucket \
-            "$ISO" "R2:testing/${DATED}"
+            "$ISO" "R2:testing/${LATEST_NAME}"
           rclone copyto --log-level INFO --s3-no-check-bucket \
-            "$ISO" "R2:testing/dakota-live-latest.iso"
-          rclone copyto --log-level INFO --s3-no-check-bucket \
-            "${{ steps.checksum.outputs.path }}" "R2:testing/${DATED}-CHECKSUM"
-          rclone copyto --log-level INFO --s3-no-check-bucket \
-            "${{ steps.checksum.outputs.latest_path }}" \
-            "R2:testing/dakota-live-latest.iso-CHECKSUM"
+            "${{ steps.checksum.outputs.latest_path }}" "R2:testing/${LATEST_NAME}-CHECKSUM"
+
+      - name: Publish latest URLs summary
+        if: ${{ inputs.skip_upload != true && github.event_name != 'pull_request' && steps.e2e_enospc.conclusion == 'success' && steps.e2e_install.outcome == 'success' && steps.e2e_verify.outcome == 'success' && steps.boot_verify.outcome == 'success' }}
+        run: |
+          echo "## Latest ISO URLs" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [dakota-live-latest.iso](https://projectbluefin.dev/dakota-live-latest.iso)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [dakota-live-latest.iso-CHECKSUM](https://projectbluefin.dev/dakota-live-latest.iso-CHECKSUM)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload ISO artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${{ steps.iso.outputs.dated }}
+          name: dakota-live-iso
           path: ${{ steps.iso.outputs.path }}
           if-no-files-found: error
           retention-days: 7
 
       - name: Upload checksum artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: steps.checksum.outputs.path != ''
+        if: steps.checksum.outputs.latest_path != ''
         with:
-          name: checksum-${{ steps.iso.outputs.dated }}
-          path: ${{ steps.checksum.outputs.path }}
+          name: checksum-dakota-live-latest
+          path: ${{ steps.checksum.outputs.latest_path }}
           if-no-files-found: warn
           retention-days: 7
 

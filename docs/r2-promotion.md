@@ -12,8 +12,7 @@ Manual `rclone copyto` to the `latest` pointer is prohibited. It bypasses
 the CI E2E test gate (`plain-e2e`) and ships untested ISOs to users.
 This caused a production outage in June 2026 (broken XFS install, issue [#85](https://github.com/projectbluefin/dakota-iso/issues/85)).
 
-✅ Allowed: `rclone copyto` to **dated slots** (`dakota-live-20260615-abc.iso`) for archival
-✅ Allowed: `rclone copyto` between dated slots to create **named releases** (`alpha3`) after CI E2E passed
+✅ Allowed: `rclone copyto` from current latest objects to create/update **named releases** (`alpha3`) after CI E2E passed
 ❌ Prohibited: overwriting `dakota-live-latest.iso` from a local build
 ❌ Prohibited: overwriting `dakota-live-latest.iso-CHECKSUM` from a local build
 
@@ -26,7 +25,7 @@ This caused a production outage in June 2026 (broken XFS install, issue [#85](ht
 **Endpoint:** `https://2a4147f637f7d9e6a67ca185357d3b0a.r2.cloudflarestorage.com`
 **Account ID:** `2a4147f637f7d9e6a67ca185357d3b0a`
 
-ISOs are permanent — no expiry. Full history from 2026-04-10.
+Latest pointers are long-lived. Dated build objects are no longer retained by policy.
 
 ## rclone config (`~/.config/rclone/rclone.conf`)
 
@@ -54,20 +53,37 @@ no_check_bucket = true
 # List bucket contents
 rclone ls R2:testing | grep dakota | sort -k2
 
-# Promote a dated ISO to latest (server-side copy — takes 2–5 min for 4–5 GB)
-rclone copyto -v \
-  R2:testing/dakota-live-YYYYMMDD-<sha>.iso \
-  R2:testing/dakota-live-latest.iso
-
-# Always update the checksum too
-rclone copyto -v \
-  R2:testing/dakota-live-YYYYMMDD-<sha>.iso-CHECKSUM \
-  R2:testing/dakota-live-latest.iso-CHECKSUM
-
 # Create a named release (e.g., alpha2)
 rclone copyto -v \
-  R2:testing/dakota-live-YYYYMMDD-<sha>.iso \
+  R2:testing/dakota-live-latest.iso \
   R2:testing/dakota-live-alpha2.iso
+rclone copyto -v \
+  R2:testing/dakota-live-latest.iso-CHECKSUM \
+  R2:testing/dakota-live-alpha2.iso-CHECKSUM
+```
+
+## One-time cleanup: remove dated objects, keep latest + newest Dakota alpha
+
+```bash
+# Preview dated objects first (safe read-only)
+rclone lsf R2:testing | grep -E '^[a-z0-9-]+-live-[0-9]{8}-[0-9a-f]{7}\\.iso(-CHECKSUM)?$' | sort
+
+# Preserve newest dakota alpha (if present)
+KEEP_ALPHA="$(rclone lsf R2:testing | grep -E '^dakota-live-alpha[0-9]+\\.iso$' | sort -V | tail -n1)"
+echo "Keeping alpha milestone: ${KEEP_ALPHA:-none}"
+
+# Delete only dated ISO/checksum objects; never touches latest or alpha names
+rclone lsf R2:testing | grep -E '^[a-z0-9-]+-live-[0-9]{8}-[0-9a-f]{7}\\.iso(-CHECKSUM)?$' | \
+while read -r f; do
+  rclone deletefile "R2:testing/${f}"
+done
+
+# Remove older dakota alpha milestones, keep newest alpha + checksum pair
+rclone lsf R2:testing | grep -E '^dakota-live-alpha[0-9]+\\.iso$' | sort -V | head -n -1 | \
+while read -r iso; do
+  rclone deletefile "R2:testing/${iso}"
+  rclone deletefile "R2:testing/${iso}-CHECKSUM"
+done
 ```
 
 ## Named ISOs
@@ -121,12 +137,11 @@ podman run --rm \
 
 ## CI upload (build-iso.yml)
 
-CI uploads two copies of every ISO automatically:
-1. Dated: `dakota-live-YYYYMMDD-<sha>.iso` — permanent, never overwritten
-2. Latest: `dakota-live-latest.iso` — overwritten on every successful monthly build
+CI uploads latest objects only:
+1. `dakota-live-latest.iso`
+2. `dakota-live-latest.iso-CHECKSUM`
 
-The dated copy is the source of truth for promotions. Always promote from a dated
-ISO, never from latest (latest may change).
+Named releases are manual snapshots copied from latest after the CI gate passes.
 
 ## Rotating R2 credentials
 
@@ -202,14 +217,12 @@ done
 ```
 Do not promote them or reference them in docs.
 
-### Overwriting a named release — promote from a dated ISO, not from latest (2026-06)
+### Overwriting a named release — copy ISO and checksum together (2026-06)
 
-When a named release (e.g. alpha2) needs to be replaced, always copy from the
-dated ISO — never from `dakota-live-latest.iso`. Latest may be updated by CI
-between your copy commands, producing an inconsistent ISO/checksum pair.
+When a named release (e.g. alpha2) needs to be replaced, always copy both
+the ISO and checksum in the same session so they stay paired.
 
 ```bash
-# Correct: source is pinned dated build
-rclone copyto -v R2:testing/dakota-live-YYYYMMDD-SHA.iso R2:testing/dakota-live-alpha2.iso
-rclone copyto -v R2:testing/dakota-live-YYYYMMDD-SHA.iso-CHECKSUM R2:testing/dakota-live-alpha2.iso-CHECKSUM
+rclone copyto -v R2:testing/dakota-live-latest.iso R2:testing/dakota-live-alpha2.iso
+rclone copyto -v R2:testing/dakota-live-latest.iso-CHECKSUM R2:testing/dakota-live-alpha2.iso-CHECKSUM
 ```

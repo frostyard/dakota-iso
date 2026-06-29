@@ -48,7 +48,7 @@ gh workflow run build-iso-bluefin.yml --ref main
 5. **Build live container** — `podman build live/ --build-arg TARGET=dakota-nvidia` → `localhost/dakota-nvidia-live:latest`
 6. **Build live squashfs** — `scripts/build-live-squashfs.sh` with `SUPERISO_COMPRESSION=release` → `<target>.rootfs.sfs` + `<target>-boot.tar` (~4.5 GB dakota, ~6 GB bluefin/lts-hwe)
 7. **Assemble ISO** — `live/src/build-iso.sh` → `dakota-live.iso` (no `--store` flag — OCI already embedded in squashfs as VFS)
-8. **Generate checksum** — dated + latest variants
+8. **Generate checksum** — latest variant
 9. **Plain-install E2E gates** — live boot, ENOSPC export gate, full install, installed-boot verification
 10. **Boot verification** — QEMU UEFI smoke boot on the production ISO
 11. **Upload to R2 + artifacts** — only after ENOSPC, full install, installed-boot verification, and production boot smoke all succeed
@@ -88,10 +88,12 @@ If both checks fail after 5 minutes, the job fails with `tail -50 /tmp/serial.lo
 
 ### R2 upload
 
-ISOs are uploaded to the `testing` bucket as:
-- `dakota-live-YYYYMMDD-<sha>.iso` — permanent dated record
-- `dakota-live-latest.iso` — points only to the last build whose ENOSPC gate, full install, installed-boot verification, and production ISO smoke boot all passed
-- Matching `-CHECKSUM` files for both
+ISOs are uploaded to the `testing` bucket as latest pointers only:
+- `dakota-live-latest.iso`
+- `dakota-live-latest.iso-CHECKSUM`
+
+Both are updated only after ENOSPC gate, full install, installed-boot verification,
+and production ISO smoke boot all pass.
 
 ⚠️ Direct uploads from the local host hang (routing issue). Always use R2→R2
 server-side copies via rclone for local promotion. See `docs/r2-promotion.md`.
@@ -460,20 +462,18 @@ Total worst-case ceiling: **100 min** (vs. 90 min monolithic), with precise attr
 Gates 1+2 use 4 GiB to keep the overlay tmpfs tight (~2 GiB) for ENOSPC testing.
 Gate 3 switches to 8 GiB for realistic btrfs+composefs install performance.
 
-### Build trigger reduced to monthly + on-demand to cap R2 bucket growth (2026-06)
+### Build trigger reduced to monthly + on-demand to cap churn (2026-06)
 
 The original `build-iso.yml` ran on every push to `live/**`/`scripts/**` and
-on a daily cron. Each successful run deposits a permanent dated ISO (~4.3 GB)
-into R2, so daily builds produce ~60 ISOs/month of unbounded storage growth.
+on a daily cron, creating excessive CI and publish churn.
 
 **Fix:** push triggers and the daily cron were removed. The workflow now runs:
 - `schedule: cron '0 3 1 * *'` — 1st of each month at 03:00 UTC
 - `workflow_dispatch` — on demand for releases, hotfixes, or manual triggers
 
-This limits automatic R2 growth to ~2 objects/month (dated + latest overwrite).
-For mid-cycle releases (e.g. a new named alpha), trigger manually and then
-promote the dated ISO to the named slot via `rclone copyto` as documented in
-`docs/r2-promotion.md`.
+This keeps automatic publishing stable while preserving on-demand manual runs.
+For mid-cycle named releases (e.g. a new alpha), use the manual promotion flow
+documented in `docs/r2-promotion.md`.
 
 ### btrfs composefs install — root cause chain and fixes (2026-06)
 
