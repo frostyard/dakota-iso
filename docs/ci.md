@@ -86,14 +86,30 @@ CI accepts either:
 Some dev channel builds don't write the serial marker but still reach GDM.
 If both checks fail after 5 minutes, the job fails with `tail -50 /tmp/serial.log`.
 
-### R2 upload
+### R2 upload and backup rotation
 
-ISOs are uploaded to the `testing` bucket as latest pointers only:
-- `dakota-live-latest.iso`
-- `dakota-live-latest.iso-CHECKSUM`
+ISOs are uploaded to the `testing` bucket as latest pointers only — no dated objects.
+Before uploading the new latest, the workflow rotates 3 backup slots:
 
-Both are updated only after ENOSPC gate, full install, installed-boot verification,
+```
+backup-2 → backup-3
+backup-1 → backup-2
+latest   → backup-1
+new ISO  → latest
+```
+
+Objects published per build:
+- `dakota-live-latest.iso` + `-CHECKSUM` (always overwritten)
+- `dakota-live-backup-{1,2,3}.iso` + `-CHECKSUM` (rotated; slots beyond 3 are pruned)
+
+All are updated only after ENOSPC gate, full install, installed-boot verification,
 and production ISO smoke boot all pass.
+
+### README table auto-refresh
+
+After a successful Dakota upload, `build-iso.yml` auto-commits a README update:
+the `| \`dakota\` |` row is rewritten with the current ISO size, publish date, and a
+link to the CI run. This requires `contents: write` permission on the job.
 
 ⚠️ Direct uploads from the local host hang (routing issue). Always use R2→R2
 server-side copies via rclone for local promotion. See `docs/r2-promotion.md`.

@@ -26,6 +26,7 @@ Agent entry point for `projectbluefin/dakota-iso`. Load only the skill(s) that m
 | GPT layout, El Torito, systemd-boot, dmsquash-live | [`docs/architecture.md`](architecture.md) |
 | **CI/CD** | |
 | `build-iso.yml`, smoke test, R2 uploads, unified ISO pipeline | [`docs/ci.md`](ci.md) |
+| Backup rotation, variant matrix, AHCI smoke boot, README auto-refresh | [`docs/skills/ci-tooling.md`](skills/ci-tooling.md) |
 | LUKS E2E test (local QEMU, libvirt, CI-equivalent) + installed-disk boot | [`docs/luks-testing.md`](luks-testing.md) |
 | **R2 / Release** | |
 | Promoting ISOs to production, rclone, named releases | [`docs/r2-promotion.md`](r2-promotion.md) |

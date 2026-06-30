@@ -5,6 +5,7 @@ When a session surfaces a new pattern or workaround, add it to the relevant file
 
 | File | Description | Load when... |
 |---|---|---|
+| [`ci-tooling.md`](ci-tooling.md) | ISO publish CI patterns: backup rotation, latest-only policy, variant matrix, AHCI smoke boot | Working on `build-iso.yml` / `build-iso-bluefin.yml`, adding a variant, debugging backup slots |
 | [`onboarding.md`](onboarding.md) | Dev environment setup, clone, build prerequisites | Setting up for the first time |
 | [`label-workflow.md`](label-workflow.md) | Issue lifecycle, label taxonomy, PR queue | Understanding how issues flow, triaging work |
 | [`human-gates.md`](human-gates.md) | The four gates where agents must stop for human input | Uncertain whether a change needs review |

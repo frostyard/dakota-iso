@@ -62,27 +62,33 @@ rclone copyto -v \
   R2:testing/dakota-live-alpha2.iso-CHECKSUM
 ```
 
-## One-time cleanup: remove dated objects, keep latest + newest Dakota alpha
+## Backup rotation
+
+Each CI build automatically rotates 3 backup slots before uploading the new latest:
+
+```
+backup-2 → backup-3
+backup-1 → backup-2
+latest   → backup-1
+new ISO  → latest
+```
+
+Slots beyond 3 are auto-pruned by the workflow. You never need to manage backup rotation manually.
+
+## One-time cleanup (historical — June 2026)
+
+The transition from dated publish (YYYYMMDD-SHA objects) to latest-only was performed in
+June 2026. All dated objects were deleted at that time. The bucket no longer contains dated
+objects by policy. If dated objects reappear (e.g. from an old workflow branch), delete them:
 
 ```bash
 # Preview dated objects first (safe read-only)
-rclone lsf R2:testing | grep -E '^[a-z0-9-]+-live-[0-9]{8}-[0-9a-f]{7}\\.iso(-CHECKSUM)?$' | sort
+rclone lsf R2:testing | grep -E '^[a-z0-9-]+-live-[0-9]{8}-[0-9a-f]{7}\.iso(-CHECKSUM)?$' | sort
 
-# Preserve newest dakota alpha (if present)
-KEEP_ALPHA="$(rclone lsf R2:testing | grep -E '^dakota-live-alpha[0-9]+\\.iso$' | sort -V | tail -n1)"
-echo "Keeping alpha milestone: ${KEEP_ALPHA:-none}"
-
-# Delete only dated ISO/checksum objects; never touches latest or alpha names
-rclone lsf R2:testing | grep -E '^[a-z0-9-]+-live-[0-9]{8}-[0-9a-f]{7}\\.iso(-CHECKSUM)?$' | \
+# Delete them
+rclone lsf R2:testing | grep -E '^[a-z0-9-]+-live-[0-9]{8}-[0-9a-f]{7}\.iso(-CHECKSUM)?$' | \
 while read -r f; do
   rclone deletefile "R2:testing/${f}"
-done
-
-# Remove older dakota alpha milestones, keep newest alpha + checksum pair
-rclone lsf R2:testing | grep -E '^dakota-live-alpha[0-9]+\\.iso$' | sort -V | head -n -1 | \
-while read -r iso; do
-  rclone deletefile "R2:testing/${iso}"
-  rclone deletefile "R2:testing/${iso}-CHECKSUM"
 done
 ```
 
@@ -103,11 +109,21 @@ https://projectbluefin.dev/dakota-live-latest.iso-CHECKSUM
 https://projectbluefin.dev/dakota-live-backup-1.iso
 https://projectbluefin.dev/dakota-live-backup-2.iso
 https://projectbluefin.dev/dakota-live-backup-3.iso
+
+https://projectbluefin.dev/bluefin-live-latest.iso
+https://projectbluefin.dev/bluefin-live-backup-1.iso
+https://projectbluefin.dev/bluefin-live-backup-2.iso
+https://projectbluefin.dev/bluefin-live-backup-3.iso
+
+https://projectbluefin.dev/bluefin-lts-hwe-live-latest.iso
+https://projectbluefin.dev/bluefin-lts-hwe-live-backup-1.iso
+https://projectbluefin.dev/bluefin-lts-hwe-live-backup-2.iso
+https://projectbluefin.dev/bluefin-lts-hwe-live-backup-3.iso
 ```
 
 Named releases follow the same pattern:
 ```
-https://projectbluefin.dev/dakota-live-alpha2.iso
+https://projectbluefin.dev/dakota-live-alpha4.iso
 ```
 
 ## Verifying an ISO without downloading it
