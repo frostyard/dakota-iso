@@ -21,6 +21,17 @@ SNOW_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 systemctl mask home.mount
 sed -i 's|^HOME=/var/home$|HOME=/home|' /etc/default/useradd
 
+# Snow also bind-mounts /var/usrlocal over /usr/local (usr-local.mount); on
+# live media the ephemeral /var shadows the fisherman symlink configure-live
+# created in /usr/local/bin.  Mask it so the squashfs /usr/local stays visible.
+systemctl mask usr-local.mount
+
+# Snow's first-run wizard (snow-first-setup) autostarts for every new user via
+# /etc/skel.  On live media the boot-created "snow" user would get it alongside
+# the installer — remove it from skel in the live env only (the installed
+# system uses the untouched payload image and keeps its first-boot flow).
+rm -f /etc/skel/.config/autostart/org.frostyard.FirstSetup.autostart.desktop
+
 # Polkit: the boot-created live user is "snow", not "liveuser". Cover both.
 cat > /etc/polkit-1/rules.d/99-live-installer.rules << 'EOF'
 polkit.addRule(function(action, subject) {
