@@ -1,0 +1,18 @@
+{
+    "default_image": "ghcr.io/frostyard/snow:latest",
+    "fallback_flatpaks": [],
+    "images": [
+        {
+            "name": "Snow",
+            "imgref": "ghcr.io/frostyard/snow:latest",
+            "bootloader": "systemd",
+            "filesystem": "btrfs",
+            "composefs": true,
+            "needs_user_creation": false,
+            "flatpak_var_path": "state/os/default/var",
+            "filesystems": [
+                "btrfs"
+            ]
+        }
+    ]
+}
