@@ -94,11 +94,15 @@ if [[ "${DEBUG:-0}" == "1" ]]; then
     # Enable sshd: the Dakota/Bluefin preset marks sshd disabled, so a plain
     # wants symlink gets overridden at first boot.  A preset file in
     # /etc/systemd/system-preset/ takes priority over /usr/lib and forces it on.
+    # Debian-based images ship the unit as ssh.service (sshd.service is only
+    # an alias), so pick whichever unit file actually exists.
+    SSH_UNIT="sshd.service"
+    [[ ! -f /usr/lib/systemd/system/sshd.service && -f /usr/lib/systemd/system/ssh.service ]] && SSH_UNIT="ssh.service"
     mkdir -p /etc/systemd/system-preset
-    echo "enable sshd.service" > /etc/systemd/system-preset/90-live-debug.preset
+    echo "enable ${SSH_UNIT}" > /etc/systemd/system-preset/90-live-debug.preset
     mkdir -p /etc/systemd/system/multi-user.target.wants
-    ln -sf /usr/lib/systemd/system/sshd.service \
-        /etc/systemd/system/multi-user.target.wants/sshd.service
+    ln -sf "/usr/lib/systemd/system/${SSH_UNIT}" \
+        "/etc/systemd/system/multi-user.target.wants/${SSH_UNIT}"
 
     cat >> /etc/ssh/sshd_config << 'SSHEOF'
 PermitEmptyPasswords no
@@ -248,6 +252,17 @@ cat > /etc/gdm/custom.conf << 'GDMEOF'
 AutomaticLoginEnable=True
 AutomaticLogin=liveuser
 GDMEOF
+
+# Debian-based images (gdm3) read /etc/gdm3/daemon.conf instead.  Only write
+# it when the image does not already configure autologin (some images ship
+# their own live-session autologin).
+if [[ -d /etc/gdm3 ]] && ! grep -qs '^AutomaticLoginEnable' /etc/gdm3/daemon.conf; then
+    cat >> /etc/gdm3/daemon.conf << 'GDMEOF'
+[daemon]
+AutomaticLoginEnable=True
+AutomaticLogin=liveuser
+GDMEOF
+fi
 
 # ── /var/tmp tmpfs ────────────────────────────────────────────────────────────
 # The live overlayfs puts /var on a small RAM overlay.  During install skopeo
