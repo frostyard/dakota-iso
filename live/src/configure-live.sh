@@ -614,3 +614,11 @@ fi
 
 # fisherman handles scratch space, transport-prefix stripping, OCI export, and
 # GPT partition retagging natively — no host-side wrappers needed.
+
+# ── Per-variant hook ──────────────────────────────────────────────────────────
+# Variants with needs beyond the declarative files (e.g. Debian-based images)
+# may ship an executable configure-live.d.sh in their variant directory.
+if [[ -f "$VARIANT_DIR/configure-live.d.sh" ]]; then
+    echo "Running variant hook: $VARIANT_DIR/configure-live.d.sh"
+    bash "$VARIANT_DIR/configure-live.d.sh"
+fi
