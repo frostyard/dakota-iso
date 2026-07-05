@@ -51,5 +51,6 @@
         }
     },
     "selinuxDisabled": true,
-    "cosignPubKey": "/etc/bootc-installer/cosign.pub"
+    "cosignPubKey": "/etc/bootc-installer/cosign.pub",
+    "composeFsBackend": true
 }

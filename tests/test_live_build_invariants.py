@@ -942,3 +942,86 @@ class TestPayloadPristine(unittest.TestCase):
                     "the embed step (CONTAINERS_STORAGE_CONF), or the install "
                     "container (fisherman bind-mount) instead.",
                 )
+
+
+class TestSnowIsoWorkflow(unittest.TestCase):
+    """Invariants for the fork's Snow ISO publisher and cron ownership."""
+
+    SNOW_WORKFLOW = REPO / ".github" / "workflows" / "build-iso-snow.yml"
+
+    def test_snow_workflow_defines_concurrency(self):
+        content = self.SNOW_WORKFLOW.read_text()
+        self.assertIn(
+            "\nconcurrency:\n",
+            content,
+            "build-iso-snow.yml must define workflow-level concurrency.",
+        )
+
+    def test_snow_upload_waits_for_boot_verification(self):
+        """R2 upload must wait for the smoke-boot gate to pass."""
+        content = self.SNOW_WORKFLOW.read_text()
+        upload_block = content.split("- name: Upload ISO to Cloudflare R2", 1)[1].split(
+            "\n      - name:", 1
+        )[0]
+        self.assertIn(
+            "steps.boot_verify.outcome == 'success'",
+            upload_block,
+            "build-iso-snow.yml must gate R2 upload on successful boot verification.",
+        )
+        self.assertIn(
+            "- name: Boot verification status",
+            content,
+            "build-iso-snow.yml must restore a red CI status when boot verification fails.",
+        )
+
+    def test_snow_workflow_verifies_vfs_store(self):
+        """Snow is composefs — the embed check must look at the VFS store path."""
+        content = self.SNOW_WORKFLOW.read_text()
+        self.assertIn(
+            "var/lib/containers/storage",
+            content,
+            "build-iso-snow.yml must assert the VFS store is embedded "
+            "(snow uses composeFsBackend=true).",
+        )
+
+    def test_snow_recipe_declares_composefs_backend(self):
+        """build-live-squashfs.sh detects the embed path by grepping the baked
+        recipe.json for composeFsBackend — without it the payload silently
+        lands in the overlay store and offline installs break."""
+        import json
+        recipe = json.loads((REPO / "live" / "src" / "snow" / "recipe.json").read_text())
+        self.assertTrue(
+            recipe.get("composeFsBackend"),
+            "live/src/snow/recipe.json must set composeFsBackend=true.",
+        )
+
+    def test_snow_pins_installer_repo(self):
+        """Snow ISOs must install the frostyard installer flatpak, and
+        install-flatpaks.sh must honor the per-variant pin without a
+        cross-vendor fallback."""
+        pin = (REPO / "live" / "src" / "snow" / "installer_repo").read_text().strip()
+        self.assertEqual(pin, "frostyard/bootc-installer")
+        script = (REPO / "live" / "src" / "install-flatpaks.sh").read_text()
+        self.assertIn(
+            "installer_repo",
+            script,
+            "install-flatpaks.sh must support the per-variant installer_repo pin.",
+        )
+        self.assertIn(
+            'FALLBACK_URL="${PRIMARY_URL}"',
+            script,
+            "A variant-pinned installer repo must disable the cross-vendor fallback.",
+        )
+
+    def test_upstream_iso_workflows_have_no_cron(self):
+        """The fork must not run upstream's daily dakota/bluefin ISO builds
+        (no R2 secrets for their buckets; wasted runner-hours). Guard against
+        the schedule blocks returning via upstream merges."""
+        for workflow in [BUILD_ISO_WORKFLOW, BUILD_ISO_BLUEFIN_WORKFLOW]:
+            content = workflow.read_text()
+            self.assertNotIn(
+                "schedule:",
+                content,
+                f"{workflow.name} must not have a cron on this fork — "
+                "only build-iso-snow.yml publishes on a schedule.",
+            )

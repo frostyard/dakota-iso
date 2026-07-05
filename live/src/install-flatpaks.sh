@@ -41,8 +41,17 @@ flatpak remote-add --system --if-not-exists flathub \
 # Primary source: projectbluefin/bootc-installer (Project Bluefin's fork).
 # Fallback: tuna-os/tuna-installer (upstream) if projectbluefin assets are unavailable.
 # v2.6.1 adds nvidia_imgref GPU auto-detection support.
+# A variant may pin its own installer source with src/<variant>/installer_repo
+# (same release-asset layout required).  VARIANT strips the -nvidia suffix
+# from TARGET, mirroring configure-live.sh.
 INSTALLER_REPO="projectbluefin/bootc-installer"
 FALLBACK_REPO="tuna-os/tuna-installer"
+VARIANT=$(echo "${TARGET:-dakota-nvidia}" | sed 's/-nvidia-open$//;s/-nvidia$//')
+VARIANT_PINNED_REPO=""
+if [ -s "/src/${VARIANT}/installer_repo" ]; then
+    VARIANT_PINNED_REPO="$(tr -d '[:space:]' < "/src/${VARIANT}/installer_repo")"
+    INSTALLER_REPO="${VARIANT_PINNED_REPO}"
+fi
 FLATPAK_FILENAME="org.bootcinstaller.Installer.flatpak"
 if [[ "${INSTALLER_CHANNEL:-stable}" == "dev" ]]; then
     FLATPAK_FILENAME="org.bootcinstaller.Installer.Devel.flatpak"
@@ -56,10 +65,16 @@ else
     PRIMARY_URL="https://github.com/${INSTALLER_REPO}/releases/latest/download/${FLATPAK_FILENAME}"
     FALLBACK_URL="https://github.com/${FALLBACK_REPO}/releases/latest/download/${FLATPAK_FILENAME}"
 fi
+# When a variant pins installer_repo there is no cross-vendor fallback: the
+# pinned installer carries variant-specific behavior, so shipping a different
+# vendor's binary on a 404 would be a silent downgrade — fail the build instead.
+if [ -n "${VARIANT_PINNED_REPO}" ]; then
+    FALLBACK_URL="${PRIMARY_URL}"
+fi
 if ! curl --retry 3 --fail --location \
     "${PRIMARY_URL}" \
     -o /tmp/tuna-installer.flatpak 2>/dev/null; then
-    echo "Primary source unavailable, falling back to ${FALLBACK_REPO}..."
+    echo "Primary source unavailable, falling back to ${FALLBACK_URL}..."
     curl --retry 3 --fail --location \
         "${FALLBACK_URL}" \
         -o /tmp/tuna-installer.flatpak
