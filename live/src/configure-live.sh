@@ -389,11 +389,17 @@ else
 fi
 
 # Generate recipe.json with the correct imgref/local_imgref for this variant.
-# All other fields (branding, tour, steps) are identical across variants.
+# A variant-specific recipe.json (branding, tour, steps) may be provided in
+# the variant directory, mirroring the images.json override above; otherwise
+# all variants share the stock recipe.
+RECIPE_SRC="$SCRIPT_DIR/etc/bootc-installer/recipe.json"
+if [[ -f "$VARIANT_DIR/recipe.json" ]]; then
+    RECIPE_SRC="$VARIANT_DIR/recipe.json"
+fi
 python3 - << PYEOF
 import json, sys
 
-with open("$SCRIPT_DIR/etc/bootc-installer/recipe.json") as f:
+with open("$RECIPE_SRC") as f:
     recipe = json.load(f)
 
 # image = source for fisherman/bootc install
