@@ -4,9 +4,9 @@ concurrency:
   group: publish-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+# Fork note (frostyard): the daily schedule is removed — this fork ships Snow
+# ISOs (build-iso-snow.yml); upstream bluefin ISO builds stay dispatch-only.
 on:
-  schedule:
-    - cron: '0 5 * * *'   # daily, 05:00 UTC (after dakota at 03:00)
   workflow_dispatch:
     inputs:
       variant:
