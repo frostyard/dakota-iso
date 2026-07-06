@@ -72,7 +72,7 @@ CS_STAGING="${WORKDIR}/${TARGET}-cs-staging"
 SQUASHFS_ROOT="${WORKDIR}/${TARGET}-sfs-root"
 PAYLOAD_OCI="${OUTPUT_DIR}/${TARGET}-payload.oci.tar"
 
-trap "rm -f '${SQUASHFS}' '${BOOT_TAR}' '${PAYLOAD_OCI}' 2>/dev/null || true" EXIT
+trap 'rm -f "${SQUASHFS}" "${BOOT_TAR}" "${PAYLOAD_OCI}" 2>/dev/null || true' EXIT
 
 echo "=== Disk space before squashfs assembly ==="
 df -h "${OUTPUT_DIR}"
