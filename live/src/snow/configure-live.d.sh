@@ -32,6 +32,15 @@ systemctl mask usr-local.mount
 # system uses the untouched payload image and keeps its first-boot flow).
 rm -f /etc/skel/.config/autostart/org.frostyard.FirstSetup.autostart.desktop
 
+# The payload also pins the snow user's GDM session to the dedicated
+# firstsetup GNOME session via AccountsService.  Until now this file only
+# vanished from the live image by accident (install-flatpaks.sh starts a
+# system dbus-daemon, flatpak activates accounts-daemon, and accounts-daemon
+# purges cached records for users that don't exist in the build container).
+# Delete it explicitly so wizard suppression doesn't hinge on that side
+# effect; the installed system keeps it via the pristine embedded payload.
+rm -f /var/lib/AccountsService/users/snow
+
 # Polkit: the boot-created live user is "snow", not "liveuser". Cover both.
 cat > /etc/polkit-1/rules.d/99-live-installer.rules << 'EOF'
 polkit.addRule(function(action, subject) {
