@@ -15,6 +15,66 @@
             "filesystems": [
                 "btrfs"
             ]
+        },
+        {
+            "name": "Snow Loaded",
+            "imgref": "ghcr.io/frostyard/snowloaded:latest",
+            "bootloader": "systemd",
+            "filesystem": "btrfs",
+            "composefs": true,
+            "needs_user_creation": false,
+            "flatpak_var_path": "state/os/default/var",
+            "filesystems": [
+                "btrfs"
+            ]
+        },
+        {
+            "name": "Snowfield",
+            "imgref": "ghcr.io/frostyard/snowfield:latest",
+            "bootloader": "systemd",
+            "filesystem": "btrfs",
+            "composefs": true,
+            "needs_user_creation": false,
+            "flatpak_var_path": "state/os/default/var",
+            "filesystems": [
+                "btrfs"
+            ]
+        },
+        {
+            "name": "Snowfield Loaded",
+            "imgref": "ghcr.io/frostyard/snowfieldloaded:latest",
+            "bootloader": "systemd",
+            "filesystem": "btrfs",
+            "composefs": true,
+            "needs_user_creation": false,
+            "flatpak_var_path": "state/os/default/var",
+            "filesystems": [
+                "btrfs"
+            ]
+        },
+        {
+            "name": "Cayo",
+            "imgref": "ghcr.io/frostyard/cayo:latest",
+            "bootloader": "systemd",
+            "filesystem": "btrfs",
+            "composefs": true,
+            "needs_user_creation": false,
+            "flatpak_var_path": "state/os/default/var",
+            "filesystems": [
+                "btrfs"
+            ]
+        },
+        {
+            "name": "Cayo Loaded",
+            "imgref": "ghcr.io/frostyard/cayoloaded:latest",
+            "bootloader": "systemd",
+            "filesystem": "btrfs",
+            "composefs": true,
+            "needs_user_creation": false,
+            "flatpak_var_path": "state/os/default/var",
+            "filesystems": [
+                "btrfs"
+            ]
         }
     ],
     "welcome_title": "Welcome to Snow Linux",
@@ -37,6 +97,9 @@
             "template": "welcome",
             "protected": true
         },
+        "image": {
+            "template": "image"
+        },
         "disk": {
             "template": "disk"
         },
@@ -51,6 +114,5 @@
         }
     },
     "selinuxDisabled": true,
-    "cosignPubKey": "/etc/bootc-installer/cosign.pub",
-    "composeFsBackend": true
+    "cosignPubKey": "/etc/bootc-installer/cosign.pub"
 }
