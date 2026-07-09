@@ -355,6 +355,84 @@ boot-iso-serial target:
         -display none \
         -no-reboot
 
+# Interactive GUI boot with TWO blank install target disks (vda + vdb).
+# Replicates multi-disk machines so installer disk-selection bugs reproduce.
+# Disks are created in /var/tmp (never /tmp — 16GB tmpfs) and persist between
+# runs; delete them to start fresh:
+#   rm /var/tmp/<target>-install-disk{1,2}.img
+# SSH: localhost:2222 (debug=1 builds). Serial log: /var/tmp/<target>-gui-serial.log
+boot-iso-gui target:
+    #!/usr/bin/bash
+    set -euo pipefail
+    QEMU=$(command -v /usr/libexec/qemu-kvm /usr/bin/qemu-kvm \
+               /usr/bin/qemu-system-x86_64 \
+               /home/linuxbrew/.linuxbrew/bin/qemu-system-x86_64 2>/dev/null | head -1)
+    [[ -z "$QEMU" ]] && { echo "qemu-kvm / qemu-system-x86_64 not found" >&2; exit 1; }
+    ISO=$(ls \
+        {{output_dir}}/{{target}}-live.iso \
+        output/bootiso/install.iso \
+        output/bootc-{{target}}*.iso \
+        2>/dev/null | head -1 || true)
+    if [[ -z "$ISO" ]]; then
+        echo "No ISO found for '{{target}}' — run: just iso-sd-boot {{target}}" >&2
+        exit 1
+    fi
+    ISO=$(realpath "$ISO")
+
+    # Locate OVMF firmware (path varies by distro)
+    OVMF_CODE=""
+    for f in \
+        /usr/share/OVMF/OVMF_CODE.fd \
+        /usr/share/edk2/ovmf/OVMF_CODE.fd \
+        /usr/share/edk2-ovmf/x64/OVMF_CODE.fd \
+        /usr/share/ovmf/OVMF.fd \
+        /home/linuxbrew/.linuxbrew/share/qemu/edk2-x86_64-code.fd \
+        /home/linuxbrew/.linuxbrew/Cellar/qemu/11.0.1/share/qemu/edk2-x86_64-code.fd; do
+        [[ -f "$f" ]] && { OVMF_CODE="$f"; break; }
+    done
+    [[ -z "$OVMF_CODE" ]] && { echo "OVMF firmware not found — install edk2-ovmf or ovmf" >&2; exit 1; }
+    OVMF_VARS=/var/tmp/{{target}}-gui-ovmf-vars.fd
+    OVMF_VARS_SRC=""
+    for f in \
+        /usr/share/OVMF/OVMF_VARS.fd \
+        /usr/share/edk2/ovmf/OVMF_VARS.fd \
+        /usr/share/edk2-ovmf/x64/OVMF_VARS.fd; do
+        [[ -f "$f" ]] && { OVMF_VARS_SRC="$f"; break; }
+    done
+    if [[ -n "$OVMF_VARS_SRC" ]]; then
+        cp "$OVMF_VARS_SRC" "$OVMF_VARS"
+    else
+        dd if=/dev/zero bs=1k count=256 of="$OVMF_VARS" 2>/dev/null
+    fi
+
+    # Two blank install targets — vda and vdb inside the guest.
+    DISK1=/var/tmp/{{target}}-install-disk1.img
+    DISK2=/var/tmp/{{target}}-install-disk2.img
+    [[ -f "$DISK1" ]] || qemu-img create -f raw "$DISK1" 50G
+    [[ -f "$DISK2" ]] || qemu-img create -f raw "$DISK2" 50G
+
+    echo "Booting ${ISO} — GTK window, disks: $DISK1 (vda), $DISK2 (vdb)"
+    echo "SSH: ssh -p 2222 liveuser@localhost (password: live) for debug=1 builds"
+    "$QEMU" \
+        -machine q35 \
+        -m {{qemu-mem}} \
+        -accel kvm \
+        -cpu host \
+        -smp {{qemu-smp}} \
+        -drive if=pflash,format=raw,readonly=on,file="${OVMF_CODE}" \
+        -drive if=pflash,format=raw,file="${OVMF_VARS}" \
+        -drive if=none,id=live-disk,file="${ISO}",media=cdrom,format=raw,readonly=on \
+        -device virtio-scsi-pci,id=scsi \
+        -device scsi-cd,drive=live-disk \
+        -drive if=none,id=target1,file="$DISK1",format=raw \
+        -device virtio-blk-pci,drive=target1 \
+        -drive if=none,id=target2,file="$DISK2",format=raw \
+        -device virtio-blk-pci,drive=target2 \
+        -net nic,model=virtio -net user,hostfwd=tcp::2222-:22 \
+        -device usb-ehci -device usb-tablet \
+        -serial file:/var/tmp/{{target}}-gui-serial.log \
+        -display gtk,zoom-to-fit=on
+
 # Boot a built ISO in libvirt with UEFI, a target install disk, and SSH via
 # the default libvirt network.  Prints the SSH command once the guest gets a
 # DHCP lease.
