@@ -250,10 +250,14 @@ df -h "${OUTPUT_DIR}"
 du -sh "${SQUASHFS}" "${BOOT_TAR}" 2>/dev/null || true
 
 LIVE_TITLE=$(cat "${TARGET}/live_title" 2>/dev/null || echo 'Dakota Live')
+# Optional per-variant extra kernel cmdline (e.g. snow: "snow-linux.live=1"
+# activates the payload's live-session gates).
+LIVE_CMDLINE=$(cat "${TARGET}/live_cmdline" 2>/dev/null | tr -d '\n' || true)
 TMPDIR="${OUTPUT_DIR}" \
 PATH="/usr/sbin:/usr/bin:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}" \
     bash "live/src/build-iso.sh" \
         --title "${LIVE_TITLE}" \
+        ${LIVE_CMDLINE:+--cmdline-extra "${LIVE_CMDLINE}"} \
         "${BOOT_TAR}" "${SQUASHFS}" "${OUTPUT_DIR}/${TARGET}-live.iso"
 
 echo "ISO ready: ${OUTPUT_DIR}/${TARGET}-live.iso"
