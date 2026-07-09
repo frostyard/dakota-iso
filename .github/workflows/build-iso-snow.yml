@@ -95,6 +95,7 @@ jobs:
         run: |
           sudo bash live/src/build-iso.sh \
             --title "Snow Linux Live" \
+            --cmdline-extra "$(cat snow/live_cmdline)" \
             "/var/iso-build/${LIVE_TARGET}-boot.tar" \
             "/var/iso-build/${LIVE_TARGET}.rootfs.sfs" \
             "/var/iso-build/${ISO_NAME}.iso"

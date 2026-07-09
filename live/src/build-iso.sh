@@ -52,11 +52,16 @@ while [[ $# -gt 0 ]]; do
         --store) STORE_SFS="${2:?--store requires a path}"; shift 2 ;;
         --arch)  ARCH_SPECS+=("${2:?--arch requires arch:boot-tar:squashfs}"); shift 2 ;;
         --title) LIVE_TITLE="${2:?--title requires a string}"; shift 2 ;;
+        --cmdline-extra) CMDLINE_EXTRA="${2:?--cmdline-extra requires a string}"; shift 2 ;;
         *)       break ;;
     esac
 done
 
 LIVE_TITLE="${LIVE_TITLE:-Dakota Live}"
+# Extra kernel cmdline args appended to every boot entry (e.g. the Snow payload
+# gates live-session behavior — first-setup suppression, docker/incus/brew
+# skips — on "snow-linux.live=1").
+CMDLINE_EXTRA="${CMDLINE_EXTRA:-}"
 LABEL="DAKOTA_LIVE"
 MULTI_ARCH=false
 
@@ -180,7 +185,7 @@ if [[ "${MULTI_ARCH}" == "true" ]]; then
 title   ${LIVE_TITLE} (${arch})
 linux   /images/pxeboot/${arch}/vmlinuz
 initrd  /images/pxeboot/${arch}/initrd.img
-options root=live:LABEL=DAKOTA_LIVE rd.live.image rd.live.overlay.overlayfs=1 rd.live.squashimg=squashfs-${arch}.img enforcing=0 nvidia-drm.modeset=1 console=${local_console},115200n8
+options root=live:LABEL=DAKOTA_LIVE rd.live.image rd.live.overlay.overlayfs=1 rd.live.squashimg=squashfs-${arch}.img enforcing=0 nvidia-drm.modeset=1 console=${local_console},115200n8${CMDLINE_EXTRA:+ ${CMDLINE_EXTRA}}
 EOF
 
         # Per-arch squashfs
@@ -214,7 +219,7 @@ EOF
             local_console="${SERIAL_CONSOLE[${arch}]:-ttyS0}"
             cat << EOF
 menuentry "${LIVE_TITLE} (${arch})" {
-    linux /images/pxeboot/${arch}/vmlinuz root=live:LABEL=DAKOTA_LIVE rd.live.image rd.live.overlay.overlayfs=1 rd.live.squashimg=squashfs-${arch}.img enforcing=0 nvidia-drm.modeset=1 console=${local_console},115200n8 rd.dakota.isofile=\${iso_path}
+    linux /images/pxeboot/${arch}/vmlinuz root=live:LABEL=DAKOTA_LIVE rd.live.image rd.live.overlay.overlayfs=1 rd.live.squashimg=squashfs-${arch}.img enforcing=0 nvidia-drm.modeset=1 console=${local_console},115200n8${CMDLINE_EXTRA:+ ${CMDLINE_EXTRA}} rd.dakota.isofile=\${iso_path}
     initrd /images/pxeboot/${arch}/initrd.img
 }
 EOF
@@ -283,7 +288,7 @@ EOF
 title   ${LIVE_TITLE}
 linux   /images/pxeboot/vmlinuz
 initrd  /images/pxeboot/initrd.img
-options root=live:LABEL=DAKOTA_LIVE rd.live.image rd.live.overlay.overlayfs=1 enforcing=0 nvidia-drm.modeset=1 console=ttyS0,115200n8 console=ttyAMA0,115200n8
+options root=live:LABEL=DAKOTA_LIVE rd.live.image rd.live.overlay.overlayfs=1 enforcing=0 nvidia-drm.modeset=1 console=ttyS0,115200n8 console=ttyAMA0,115200n8${CMDLINE_EXTRA:+ ${CMDLINE_EXTRA}}
 EOF
 
     # EFI fallback path on the ISO9660 root
@@ -297,7 +302,7 @@ EOF
     cp "${INITRD}"  "${ISO_ROOT}/images/pxeboot/initrd.img"
     cat > "${ISO_ROOT}/boot/grub/loopback.cfg" << EOF
 menuentry "${LIVE_TITLE}" {
-    linux /images/pxeboot/vmlinuz root=live:LABEL=DAKOTA_LIVE rd.live.image rd.live.overlay.overlayfs=1 enforcing=0 nvidia-drm.modeset=1 console=ttyS0,115200n8 console=ttyAMA0,115200n8 rd.dakota.isofile=\${iso_path}
+    linux /images/pxeboot/vmlinuz root=live:LABEL=DAKOTA_LIVE rd.live.image rd.live.overlay.overlayfs=1 enforcing=0 nvidia-drm.modeset=1 console=ttyS0,115200n8 console=ttyAMA0,115200n8${CMDLINE_EXTRA:+ ${CMDLINE_EXTRA}} rd.dakota.isofile=\${iso_path}
     initrd /images/pxeboot/initrd.img
 }
 EOF
