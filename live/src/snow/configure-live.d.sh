@@ -62,6 +62,27 @@ chmod 0440 /etc/sudoers.d/snow-live
 # installs but staged so registry installs can verify signatures.
 install -D -m 0644 "${SNOW_DIR}/cosign.pub" /etc/bootc-installer/cosign.pub
 
+# cosign binary — fisherman execs `cosign verify --key ...` on the live host
+# for registry installs (picking Snowfield/Cayo in the image picker pulls from
+# ghcr.io instead of the baked offline store). pkexec sanitizes PATH to
+# /usr/sbin:/usr/bin:/sbin:/bin, so install into /usr/bin.
+# Version MUST match what snosi signs/verifies with (v2.6.1 in
+# build-images.yml / test-install.yml) — cosign v3 changed bundle defaults
+# and does not verify these signatures.
+COSIGN_VERSION="v2.6.1"
+case "$(uname -m)" in
+    x86_64)  COSIGN_ARCH=amd64; COSIGN_SHA256=064954c5d8c7e3b28188eee5b1727b31c411550bc5fefd41aa672d3c761d103a ;;
+    aarch64) COSIGN_ARCH=arm64; COSIGN_SHA256=56a16480bdd56ec789abaa65924402f6b92c0041f06885995853c05567b76f34 ;;
+    *) echo "Unsupported arch for cosign: $(uname -m)" >&2; exit 1 ;;
+esac
+curl --retry 3 --fail --location \
+    "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-${COSIGN_ARCH}" \
+    -o /tmp/cosign
+echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c -
+install -m 0755 /tmp/cosign /usr/bin/cosign
+rm -f /tmp/cosign
+cosign version 2>/dev/null | head -3 || true
+
 # Swap the bundle's fisherman for the frostyard build when staged (untracked
 # live/src/snow/fisherman): carries the composefs scratch-store pull fix and
 # cosign verification until upstream releases them.
