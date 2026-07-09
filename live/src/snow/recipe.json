@@ -3,44 +3,6 @@
     "distro_name": "Snow Linux",
     "distro_logo": "resource:///org/bootcinstaller/Installer/images/dakota.png",
     "imgref": "ghcr.io/frostyard/snow:latest",
-    "images": [
-        {
-            "name": "Snow",
-            "imgref": "ghcr.io/frostyard/snow:latest",
-            "bootloader": "systemd",
-            "filesystem": "btrfs",
-            "composefs": true,
-            "needs_user_creation": false,
-            "flatpak_var_path": "state/os/default/var",
-            "filesystems": [
-                "btrfs"
-            ]
-        },
-        {
-            "name": "Snowfield",
-            "imgref": "ghcr.io/frostyard/snowfield:latest",
-            "bootloader": "systemd",
-            "filesystem": "btrfs",
-            "composefs": true,
-            "needs_user_creation": false,
-            "flatpak_var_path": "state/os/default/var",
-            "filesystems": [
-                "btrfs"
-            ]
-        },
-        {
-            "name": "Cayo",
-            "imgref": "ghcr.io/frostyard/cayo:latest",
-            "bootloader": "systemd",
-            "filesystem": "btrfs",
-            "composefs": true,
-            "needs_user_creation": false,
-            "flatpak_var_path": "state/os/default/var",
-            "filesystems": [
-                "btrfs"
-            ]
-        }
-    ],
     "welcome_title": "Welcome to Snow Linux",
     "credits_data": "/org/bootcinstaller/Installer/data/credits.json",
     "welcome_subtitle": "A Debian bootc desktop \u2014 composefs, atomic updates, no package manager.",
@@ -77,6 +39,7 @@
             "template": "user"
         }
     },
+    "live_image_selection": true,
     "selinuxDisabled": true,
     "cosignPubKey": "/etc/bootc-installer/cosign.pub",
     "composeFsBackend": true
