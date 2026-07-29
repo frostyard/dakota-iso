@@ -484,8 +484,8 @@ podman run --rm -v /var/tmp/test:/work \
 type = s3
 provider = Cloudflare
 region = auto
-access_key_id = abfd2b00ed95ee9b17b7c35a68b0f959
-secret_access_key = 8ab5b927c2bd2508cf3518fafaa458ba3176754f317291087dc3ab920d86490a
+access_key_id = <R2_ACCESS_KEY_ID_FROM_SECRET_MANAGER>
+secret_access_key = <R2_SECRET_ACCESS_KEY_FROM_SECRET_MANAGER>
 endpoint = https://2a4147f637f7d9e6a67ca185357d3b0a.r2.cloudflarestorage.com
 acl = private
 no_check_bucket = true
@@ -493,6 +493,13 @@ no_check_bucket = true
 
 ⚠️ `no_check_bucket = true` is **required** — without it, CopyObject hangs on large files.
 `acl = private` is required per Cloudflare docs for Object-level permission tokens.
+Retrieve the credential pair from the approved secret manager or inject it with
+`RCLONE_CONFIG_R2_ACCESS_KEY_ID` and `RCLONE_CONFIG_R2_SECRET_ACCESS_KEY`; never
+put either value in tracked files, shell history, build logs, or command-line
+arguments. If a credential is exposed, create a replacement token, update the
+secret-manager and GitHub Actions secrets, verify the replacement, then revoke
+the exposed token in the Cloudflare dashboard. Provider-side rotation is manual
+and must be completed immediately for any leaked credential.
 
 ```bash
 # List bucket contents
