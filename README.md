@@ -11,6 +11,23 @@ Builds bootable UEFI live ISOs from [Dakota](https://github.com/projectbluefin/d
 The ISO boots the **NVIDIA** variant live and embeds the OCI image in an offline store
 inside the squashfs so the target OS can be installed on any hardware without a network pull.
 
+## Secure Snow media
+
+Snow has an opt-in, fail-closed `secure_snosi=1` build mode. It uses Debian's
+Microsoft-trusted shim, signed GRUB, MokManager, and a Debian-signed kernel
+instead of the generic unsigned systemd-boot chain. It requires hash-verified
+reviewed installer and Fisherman inputs; rolling release aliases are refused.
+See [`docs/snow-secure-media.md`](docs/snow-secure-media.md).
+
+### Task 9 external runners
+
+`test/bootc-secure-*-runner.sh` supplies the external adapters consumed by
+Snosi's secure install and update harnesses. They are test-only: each validates
+the schema-1 recipe/state inputs, uses the harness-owned OVMF and swtpm paths,
+and exits `2` with `BLOCKED:` when a required secure ISO, signed mutation
+fixture, or host tool is unavailable. See `docs/snow-secure-media.md` for the
+commands and fixture test.
+
 ## Variants
 
 | Variant | Base image | Bootloader | Composefs | Description |

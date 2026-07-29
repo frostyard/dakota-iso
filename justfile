@@ -20,6 +20,18 @@ debug := "0"
 # Example: just installer_channel=dev iso-sd-boot dakota
 installer_channel := "stable"
 
+# Opt-in Snosi secure media mode. It is valid only for the snow target and
+# requires pinned, hash-verified installer inputs; see docs/snow-secure-media.md.
+secure_snosi := "0"
+secure_installer_flatpak := ""
+secure_installer_sha256 := ""
+secure_fisherman := ""
+secure_fisherman_sha256 := ""
+secure_installer_url := ""
+secure_installer_url_sha256 := ""
+secure_fisherman_url := ""
+secure_fisherman_url_sha256 := ""
+
 # LUKS passphrase used by luks-install for reproducing issue #270.
 # Example: just luks-passphrase=MySecret luks-install dakota
 luks-passphrase := "testpassphrase"
@@ -111,6 +123,15 @@ container target:
         --layers \
         --build-arg DEBUG={{debug}} \
         --build-arg INSTALLER_CHANNEL={{installer_channel}} \
+        --build-arg SECURE_SNOSI={{secure_snosi}} \
+        --build-arg SECURE_INSTALLER_FLATPAK={{secure_installer_flatpak}} \
+        --build-arg SECURE_INSTALLER_SHA256={{secure_installer_sha256}} \
+        --build-arg SECURE_FISHERMAN={{secure_fisherman}} \
+        --build-arg SECURE_FISHERMAN_SHA256={{secure_fisherman_sha256}} \
+        --build-arg SECURE_INSTALLER_URL={{secure_installer_url}} \
+        --build-arg SECURE_INSTALLER_URL_SHA256={{secure_installer_url_sha256}} \
+        --build-arg SECURE_FISHERMAN_URL={{secure_fisherman_url}} \
+        --build-arg SECURE_FISHERMAN_URL_SHA256={{secure_fisherman_url_sha256}} \
         --build-arg TARGET="${LIVE_TARGET}" \
         --build-arg TAG="${LIVE_TAG}" \
         --build-arg REGISTRY="${LIVE_REGISTRY}" \
@@ -132,6 +153,15 @@ iso-sd-boot target:
     WORKDIR={{workdir}} \
     DEBUG={{debug}} \
     INSTALLER_CHANNEL={{installer_channel}} \
+    SECURE_SNOSI={{secure_snosi}} \
+    SECURE_INSTALLER_FLATPAK={{secure_installer_flatpak}} \
+    SECURE_INSTALLER_SHA256={{secure_installer_sha256}} \
+    SECURE_FISHERMAN={{secure_fisherman}} \
+    SECURE_FISHERMAN_SHA256={{secure_fisherman_sha256}} \
+    SECURE_INSTALLER_URL={{secure_installer_url}} \
+    SECURE_INSTALLER_URL_SHA256={{secure_installer_url_sha256}} \
+    SECURE_FISHERMAN_URL={{secure_fisherman_url}} \
+    SECURE_FISHERMAN_URL_SHA256={{secure_fisherman_url_sha256}} \
     COMPRESSION={{compression}} \
     bash scripts/iso-sd-boot.sh
 iso target:

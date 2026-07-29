@@ -60,14 +60,25 @@ images/pxeboot/*             — kernel/initramfs copies for loopback ISO boot
 
 **No GRUB2, no shim.** El Torito UEFI → FAT ESP → systemd-boot → kernel + initramfs.
 
+### Secure Snow exception
+
+The explicit `secure_snosi=1` Snow build keeps this generic layout unchanged for
+all other variants. Its ESP instead uses Debian-signed shim at `BOOTX64.EFI`,
+MokManager at `mmx64.efi`, signed GRUB at `grubx64.efi`, and the signed Snow
+kernel. `fbx64.efi` is excluded because it can reset OVMF before shim starts.
+The secure build validates shim, GRUB, and kernel PE signatures before assembly.
+Its dedicated GRUB entry uses `root=live:LABEL=DAKOTA_LIVE` with the live-image
+and overlay arguments, without the generic `enforcing=0` relaxation or an ARM
+serial-console argument.
+
 ## Boot flow
 
 ```
 UEFI firmware
   → El Torito (no-emulation) → FAT32 ESP
-  → systemd-boot
+  → systemd-boot (or shim → signed GRUB for secure Snow)
   → kernel + initramfs (dmsquash-live)
-  → scans for CDLABEL=DAKOTA_LIVE
+  → scans for LABEL=DAKOTA_LIVE
   → mounts ISO → mounts squashfs → overlayfs (writable live env)
   → systemd → GDM autologin → GNOME session
   → org.bootcinstaller.Installer (Flatpak, auto-launched)

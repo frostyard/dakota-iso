@@ -35,10 +35,14 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 OCI_IMAGE=""
 TARGET=""
 OUTPUT_DIR=""
 DEBUG_ARG="0"
+SECURE_SNOSI="${SECURE_SNOSI:-0}"
+mapfile -t BOOT_TAR_PATHS < <(bash "${SCRIPT_DIR}/boot-tar-members.sh" "${SECURE_SNOSI}")
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -63,6 +67,15 @@ if [[ -n "${TARGET}" ]]; then
         --security-opt label=disable \
         --layers \
         --build-arg INSTALLER_CHANNEL="${INSTALLER_CHANNEL:-stable}" \
+        --build-arg SECURE_SNOSI="${SECURE_SNOSI}" \
+        --build-arg SECURE_INSTALLER_FLATPAK="${SECURE_INSTALLER_FLATPAK:-}" \
+        --build-arg SECURE_INSTALLER_SHA256="${SECURE_INSTALLER_SHA256:-}" \
+        --build-arg SECURE_FISHERMAN="${SECURE_FISHERMAN:-}" \
+        --build-arg SECURE_FISHERMAN_SHA256="${SECURE_FISHERMAN_SHA256:-}" \
+        --build-arg SECURE_INSTALLER_URL="${SECURE_INSTALLER_URL:-}" \
+        --build-arg SECURE_INSTALLER_URL_SHA256="${SECURE_INSTALLER_URL_SHA256:-}" \
+        --build-arg SECURE_FISHERMAN_URL="${SECURE_FISHERMAN_URL:-}" \
+        --build-arg SECURE_FISHERMAN_URL_SHA256="${SECURE_FISHERMAN_URL_SHA256:-}" \
         --build-arg TARGET="${LIVE_TARGET}" \
         --build-arg DEBUG="${DEBUG_ARG}" \
         -t "${TARGET}-installer" \
@@ -116,6 +129,8 @@ fi
 
 # ── Embed offline OCI store (VFS) ─────────────────────────────────────────────
 # When --oci-image is given, embed the payload image for offline installation.
+# Secure Snosi media deliberately has no offline payload: Fisherman must make an
+# online Cosign- and policy-verified pull of the immutable remote image.
 # Strategy depends on composefs vs. standard-ostree:
 #
 #   composefs (composeFsBackend=true, e.g. dakota):
@@ -143,7 +158,7 @@ if podman run --rm --entrypoint="" "${IMAGE}" \
     COMPOSEFS_BACKEND=true
 fi
 echo ">>> [live-squashfs] composeFsBackend=${COMPOSEFS_BACKEND}"
-if [[ -n "${OCI_IMAGE}" ]]; then
+if [[ -n "${OCI_IMAGE}" && "${SECURE_SNOSI}" != "1" ]]; then
     if [[ "${COMPOSEFS_BACKEND}" == "true" ]]; then
         echo ">>> [live-squashfs] embedding OCI image ${OCI_IMAGE} into VFS store (composefs path) ..."
 
@@ -156,9 +171,11 @@ if [[ -n "${OCI_IMAGE}" ]]; then
         # Chunkified images have many layers; squash to 1 to keep VFS store compact.
         echo ">>> [live-squashfs] squashing ${OCI_IMAGE} to single layer ..."
         SQUASH_CTR="$(buildah from --pull-never "${OCI_IMAGE}")"
-        printf '[install]\nroot-mount-spec = "LABEL=root"\n' > "${WORK}/bootc-root-mount.toml"
-        buildah copy "${SQUASH_CTR}" "${WORK}/bootc-root-mount.toml" /tmp/.bootc-root-mount.toml
-        buildah run  "${SQUASH_CTR}" -- sh -c 'cp /tmp/.bootc-root-mount.toml /usr/lib/bootc/install/00-defaults.toml && rm /tmp/.bootc-root-mount.toml'
+        if [[ "${SECURE_SNOSI}" != "1" ]]; then
+            printf '[install]\nroot-mount-spec = "LABEL=root"\n' > "${WORK}/bootc-root-mount.toml"
+            buildah copy "${SQUASH_CTR}" "${WORK}/bootc-root-mount.toml" /tmp/.bootc-root-mount.toml
+            buildah run  "${SQUASH_CTR}" -- sh -c 'cp /tmp/.bootc-root-mount.toml /usr/lib/bootc/install/00-defaults.toml && rm /tmp/.bootc-root-mount.toml'
+        fi
         # The payload ships verbatim to installed systems — never bake a
         # storage.conf into it (installed podman would inherit VFS storage).
         # VFS config for reading the embedded store lives in the live env
@@ -205,10 +222,12 @@ if [[ -n "${OCI_IMAGE}" ]]; then
         # containers-storage at /usr/lib/containers/storage (additionalimagestore).
         echo ">>> [live-squashfs] non-composefs (bootcDirect) — embedding OCI image ${OCI_IMAGE} into overlay store ..."
 
-        printf '[install]\nroot-mount-spec = "LABEL=root"\n' > "${WORK}/bootc-root-mount.toml"
         INJECT_CTR="$(buildah from --pull-never "${OCI_IMAGE}")"
-        buildah copy "${INJECT_CTR}" "${WORK}/bootc-root-mount.toml" /tmp/.bootc-root-mount.toml
-        buildah run  "${INJECT_CTR}" -- sh -c 'mkdir -p /usr/lib/bootc/install && cp /tmp/.bootc-root-mount.toml /usr/lib/bootc/install/00-defaults.toml && rm /tmp/.bootc-root-mount.toml'
+        if [[ "${SECURE_SNOSI}" != "1" ]]; then
+            printf '[install]\nroot-mount-spec = "LABEL=root"\n' > "${WORK}/bootc-root-mount.toml"
+            buildah copy "${INJECT_CTR}" "${WORK}/bootc-root-mount.toml" /tmp/.bootc-root-mount.toml
+            buildah run  "${INJECT_CTR}" -- sh -c 'mkdir -p /usr/lib/bootc/install && cp /tmp/.bootc-root-mount.toml /usr/lib/bootc/install/00-defaults.toml && rm /tmp/.bootc-root-mount.toml'
+        fi
         
         OCI_ARCHIVE="${WORK}/payload.oci.tar"
         CS_STAGING="${WORK}/overlay-storage"
@@ -248,6 +267,10 @@ if [[ -n "${OCI_IMAGE}" ]]; then
     fi
 fi
 
+if [[ -n "${OCI_IMAGE}" && "${SECURE_SNOSI}" == "1" ]]; then
+    echo ">>> [live-squashfs] secure media skips offline OCI payload embedding; Fisherman requires an online Cosign- and policy-verified pull"
+fi
+
 SFS_LEVEL=3; SFS_BLOCK=131072
 [[ "${SUPERISO_COMPRESSION:-}" == "release" ]] && { SFS_LEVEL=15; SFS_BLOCK=1048576; }
 
@@ -276,10 +299,9 @@ echo ">>> [live-squashfs] squashfs: $(du -sh "${OUTPUT_SFS}" | cut -f1)"
 
 echo ">>> [live-squashfs] exporting boot files tar ..."
 mkdir -p "$(dirname "${OUTPUT_BOOT_TAR}")"
-tar -C "${MOUNT}" \
-    -cf "${OUTPUT_BOOT_TAR}" \
-    ./usr/lib/modules \
-    ./usr/lib/systemd/boot/efi
+    tar -C "${MOUNT}" \
+        -cf "${OUTPUT_BOOT_TAR}" \
+        "${BOOT_TAR_PATHS[@]}"
 echo ">>> [live-squashfs] boot tar: $(du -sh "${OUTPUT_BOOT_TAR}" | cut -f1)"
 
 podman image unmount "${IMAGE}" 2>/dev/null || true

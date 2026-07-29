@@ -57,10 +57,33 @@ EOF
 echo 'snow ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/snow-live
 chmod 0440 /etc/sudoers.d/snow-live
 
-# cosign public key referenced by recipe.json (cosignPubKey) — consumed by
-# the frostyard fisherman build; ignored for offline containers-storage
-# installs but staged so registry installs can verify signatures.
+# Generic Snow retains the legacy public key path for its development backend.
 install -D -m 0644 "${SNOW_DIR}/cosign.pub" /etc/bootc-installer/cosign.pub
+
+# Secure Fisherman consumes public-only material and the restrictive registry
+# policy. Generic Snow deliberately does not receive these secure-only files.
+if [[ "${SECURE_SNOSI:-0}" == "1" ]]; then
+mkdir -p /usr/lib/snosi /etc/containers/registries.d
+install -m 0644 "${SNOW_DIR}/cosign.pub" /usr/lib/snosi/cosign.pub
+cat > /etc/containers/policy.json << 'POLICYEOF'
+{
+  "default": [{"type": "reject"}],
+  "transports": {
+    "docker": {
+      "ghcr.io/frostyard/cayo": [{"type":"sigstoreSigned","keyPath":"/usr/lib/snosi/cosign.pub","signedIdentity":{"type":"matchRepository"}}],
+      "ghcr.io/frostyard/snow": [{"type":"sigstoreSigned","keyPath":"/usr/lib/snosi/cosign.pub","signedIdentity":{"type":"matchRepository"}}],
+      "ghcr.io/frostyard/snowfield": [{"type":"sigstoreSigned","keyPath":"/usr/lib/snosi/cosign.pub","signedIdentity":{"type":"matchRepository"}}]
+    },
+    "containers-storage": {"": [{"type":"insecureAcceptAnything"}]}
+  }
+}
+POLICYEOF
+cat > /etc/containers/registries.d/ghcr.io.yaml << 'REGISTRIESEOF'
+docker:
+  ghcr.io:
+    use-sigstore-attachments: true
+REGISTRIESEOF
+fi
 
 # cosign binary — fisherman execs `cosign verify --key ...` on the live host
 # for registry installs (picking Snowfield/Cayo in the image picker pulls from
@@ -83,15 +106,26 @@ install -m 0755 /tmp/cosign /usr/bin/cosign
 rm -f /tmp/cosign
 cosign version 2>/dev/null | head -3 || true
 
-# Swap the bundle's fisherman for the frostyard build when staged (untracked
-# live/src/snow/fisherman): carries the composefs scratch-store pull fix and
-# cosign verification until upstream releases them.
-if [ -x "${SNOW_DIR}/fisherman" ]; then
+# Secure builds use only the hash-verified artifact staged by install-flatpaks.
+# Generic Snow keeps the historical local override for dev iteration.
+if [[ "${SECURE_SNOSI:-0}" == "1" ]]; then
     BUNDLED=$(find /var/lib/flatpak/app -name fisherman -type f | head -1)
-    if [ -n "${BUNDLED}" ]; then
-        install -m 0755 "${SNOW_DIR}/fisherman" "${BUNDLED}"
-        echo "Replaced bundle fisherman with frostyard build"
-    fi
+    [[ -n "${BUNDLED}" && -x /usr/lib/snosi/fisherman ]] || {
+        echo "ERROR: verified secure Fisherman or bundled backend is missing" >&2; exit 1;
+    }
+    install -m 0755 /usr/lib/snosi/fisherman "${BUNDLED}"
+elif [[ -x "${SNOW_DIR}/fisherman" ]]; then
+    BUNDLED=$(find /var/lib/flatpak/app -name fisherman -type f | head -1)
+    [[ -n "${BUNDLED}" ]] || { echo "ERROR: bundled fisherman is missing" >&2; exit 1; }
+    install -m 0755 "${SNOW_DIR}/fisherman" "${BUNDLED}"
+    echo "Replaced bundle fisherman with local Snow development override"
+fi
+
+# Assert the public Fisherman contract tools are available before publishing.
+if [[ "${SECURE_SNOSI:-0}" == "1" ]]; then
+    for tool in mokutil sbverify objcopy systemd-cryptenroll cryptsetup; do
+        command -v "$tool" >/dev/null || { echo "ERROR: secure tool missing: $tool" >&2; exit 1; }
+    done
 fi
 
 # Rebrand the generic installer desktop entries.

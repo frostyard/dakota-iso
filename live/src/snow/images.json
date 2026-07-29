@@ -8,6 +8,7 @@
             "bootloader": "systemd",
             "filesystem": "btrfs",
             "composefs": true,
+            "secure_install": true,
             "needs_user_creation": false,
             "flatpak_var_path": "state/os/default/var",
             "filesystems": [
@@ -20,6 +21,7 @@
             "bootloader": "systemd",
             "filesystem": "btrfs",
             "composefs": true,
+            "secure_install": true,
             "needs_user_creation": false,
             "flatpak_var_path": "state/os/default/var",
             "filesystems": [
@@ -32,6 +34,7 @@
             "bootloader": "systemd",
             "filesystem": "btrfs",
             "composefs": true,
+            "secure_install": true,
             "needs_user_creation": true,
             "flatpak_var_path": "state/os/default/var",
             "filesystems": [

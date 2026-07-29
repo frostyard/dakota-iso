@@ -34,6 +34,43 @@ fi
 flatpak remote-add --system --if-not-exists flathub \
     https://dl.flathub.org/repo/flathub.flatpakrepo
 
+# ── Secure Snosi installer inputs ───────────────────────────────────────────
+# Secure media must be reproducible from either reviewed local artifacts in
+# /src/secure-input/ or immutable release URLs. Rolling release aliases and an
+# unverified Fisherman replacement are deliberately refused.
+if [[ "${SECURE_SNOSI:-0}" == "1" ]]; then
+    [[ "${TARGET:-}" == "snow" ]] || { echo "SECURE_SNOSI is only valid for snow" >&2; exit 1; }
+    mkdir -p /usr/lib/snosi
+    sha256_input() {
+        local source="$1" expected="$2" destination="$3"
+        [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || { echo "ERROR: invalid SHA256 for $destination" >&2; exit 1; }
+        if [[ "$source" == https://* ]]; then
+            [[ "$source" != *"/releases/latest/"* && "$source" != *"latest-dev"* && "$source" != *":latest"* ]] || {
+                echo "ERROR: secure inputs must not use mutable release aliases" >&2; exit 1;
+            }
+            curl --retry 3 --fail --location "$source" -o "$destination"
+        else
+            [[ "$source" =~ ^[A-Za-z0-9._-]+$ && -f "/src/secure-input/$source" ]] || {
+                echo "ERROR: secure local input $source is not staged in live/src/secure-input" >&2; exit 1;
+            }
+            cp "/src/secure-input/$source" "$destination"
+        fi
+        echo "$expected  $destination" | sha256sum -c -
+    }
+
+    if [[ -n "${SECURE_INSTALLER_FLATPAK:-}" && -n "${SECURE_FISHERMAN:-}" ]]; then
+        sha256_input "$SECURE_INSTALLER_FLATPAK" "$SECURE_INSTALLER_SHA256" /tmp/tuna-installer.flatpak
+        sha256_input "$SECURE_FISHERMAN" "$SECURE_FISHERMAN_SHA256" /usr/lib/snosi/fisherman
+    elif [[ -n "${SECURE_INSTALLER_URL:-}" && -n "${SECURE_FISHERMAN_URL:-}" ]]; then
+        sha256_input "$SECURE_INSTALLER_URL" "$SECURE_INSTALLER_URL_SHA256" /tmp/tuna-installer.flatpak
+        sha256_input "$SECURE_FISHERMAN_URL" "$SECURE_FISHERMAN_URL_SHA256" /usr/lib/snosi/fisherman
+    else
+        echo "ERROR: secure Snow needs local installer+Fisherman names and SHA256s, or immutable HTTPS URLs and SHA256s" >&2
+        exit 1
+    fi
+    chmod 0755 /usr/lib/snosi/fisherman
+    INSTALLER_APP_ID="org.bootcinstaller.Installer"
+else
 # bootc-installer bundle
 # INSTALLER_CHANNEL controls which release to pull from:
 #   stable (default) → GitHub "latest" release (non-pre-release)
@@ -81,6 +118,7 @@ if ! curl --retry 3 --fail --location \
 fi
 INSTALLER_APP_ID="org.bootcinstaller.Installer"
 [[ "${INSTALLER_CHANNEL:-stable}" == "dev" ]] && INSTALLER_APP_ID="org.bootcinstaller.Installer.Devel"
+fi
 
 # Import the bundle into a temporary local repo and install from there.
 # flatpak install --bundle in a container build (no running flatpak system

@@ -796,8 +796,8 @@ class TestBuildIsoScript(unittest.TestCase):
         self.assertEqual(result.returncode, 0,
                          f"dakota/src/build-iso.sh syntax error:\n{result.stderr}")
 
-    def test_build_iso_scripts_are_in_sync(self):
-        """live/ and dakota/ build-iso.sh must have identical boot cmdlines.
+    def test_generic_build_iso_scripts_are_in_sync(self):
+        """live/ and dakota/ build-iso.sh must have identical generic cmdlines.
 
         These two scripts serve different entry points (CI vs local justfile)
         but must stay in sync on the boot cmdline to prevent split-brain bugs
@@ -806,20 +806,21 @@ class TestBuildIsoScript(unittest.TestCase):
         live_content = LIVE_BUILD_ISO.read_text()
         dakota_content = DAKOTA_BUILD_ISO.read_text()
 
-        def extract_boot_lines(content):
+        def extract_generic_boot_lines(content):
             return [
                 ln.strip() for ln in content.splitlines()
                 if ("root=live:" in ln or "rd.live." in ln)
+                and "enforcing=0" in ln
                 and not ln.strip().startswith("#")
             ]
 
-        live_boot = extract_boot_lines(live_content)
-        dakota_boot = extract_boot_lines(dakota_content)
+        live_boot = extract_generic_boot_lines(live_content)
+        dakota_boot = extract_generic_boot_lines(dakota_content)
 
         self.assertEqual(
             live_boot, dakota_boot,
-            "live/src/build-iso.sh and dakota/src/build-iso.sh have different "
-            "boot cmdline options. These files must be kept in sync.\n"
+            "live/src/build-iso.sh and dakota/src/build-iso.sh have different generic "
+            "boot cmdline options. Secure Snow GRUB intentionally differs.\n"
             f"live:   {live_boot}\ndakota: {dakota_boot}",
         )
 
