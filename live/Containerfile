@@ -101,7 +101,32 @@ ARG TAG=stable
 ARG REGISTRY=projectbluefin
 ARG INSTALLER_CHANNEL=stable
 ARG DEBUG=0
-ENV TARGET=${TARGET} INSTALLER_CHANNEL=${INSTALLER_CHANNEL} DEBUG=${DEBUG}
+ARG SECURE_SNOSI=0
+ARG SECURE_INSTALLER_FLATPAK=
+ARG SECURE_INSTALLER_SHA256=
+ARG SECURE_FISHERMAN=
+ARG SECURE_FISHERMAN_SHA256=
+ARG SECURE_INSTALLER_URL=
+ARG SECURE_INSTALLER_URL_SHA256=
+ARG SECURE_FISHERMAN_URL=
+ARG SECURE_FISHERMAN_URL_SHA256=
+ENV TARGET=${TARGET} INSTALLER_CHANNEL=${INSTALLER_CHANNEL} DEBUG=${DEBUG} \
+    SECURE_SNOSI=${SECURE_SNOSI} SECURE_INSTALLER_FLATPAK=${SECURE_INSTALLER_FLATPAK} \
+    SECURE_INSTALLER_SHA256=${SECURE_INSTALLER_SHA256} SECURE_FISHERMAN=${SECURE_FISHERMAN} \
+    SECURE_FISHERMAN_SHA256=${SECURE_FISHERMAN_SHA256} SECURE_INSTALLER_URL=${SECURE_INSTALLER_URL} \
+    SECURE_INSTALLER_URL_SHA256=${SECURE_INSTALLER_URL_SHA256} SECURE_FISHERMAN_URL=${SECURE_FISHERMAN_URL} \
+    SECURE_FISHERMAN_URL_SHA256=${SECURE_FISHERMAN_URL_SHA256}
+
+# Secure Snow media uses Debian's Microsoft-trusted shim and signed GRUB to
+# load Snow's Debian-signed kernel. These public runtime tools are also the
+# Fisherman schema-1 contract; no signing private key enters this image.
+RUN if [ "${SECURE_SNOSI}" = "1" ]; then \
+        [ "${TARGET}" = "snow" ] || { echo "SECURE_SNOSI is only valid for snow" >&2; exit 1; }; \
+        apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            shim-signed grub-efi-amd64-signed shim-helpers-amd64-signed \
+            mokutil sbsigntool binutils systemd-cryptsetup cryptsetup \
+            && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # For ostree-based images (bluefin, bluefin-lts): install systemd-boot and
 # fuse-overlayfs with dnf so the live system remains a valid bootc deployment

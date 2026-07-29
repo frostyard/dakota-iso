@@ -25,6 +25,7 @@ env:
   LIVE_TARGET: snow
   ISO_NAME: snow-live
   R2_BUCKET_PATH: frostyardrepo/isos
+  SECURE_SNOSI: 1
 
 jobs:
   build-and-publish:
@@ -64,7 +65,11 @@ jobs:
             --build-arg TARGET="$LIVE_TARGET" \
             --build-arg TAG=latest \
             --build-arg REGISTRY=frostyard \
-            --build-arg INSTALLER_CHANNEL="${{ inputs.installer_channel || 'dev' }}" \
+            --build-arg SECURE_SNOSI="$SECURE_SNOSI" \
+            --build-arg SECURE_INSTALLER_URL="${{ secrets.SNOW_SECURE_INSTALLER_URL }}" \
+            --build-arg SECURE_INSTALLER_URL_SHA256="${{ secrets.SNOW_SECURE_INSTALLER_URL_SHA256 }}" \
+            --build-arg SECURE_FISHERMAN_URL="${{ secrets.SNOW_SECURE_FISHERMAN_URL }}" \
+            --build-arg SECURE_FISHERMAN_URL_SHA256="${{ secrets.SNOW_SECURE_FISHERMAN_URL_SHA256 }}" \
             -t "localhost/${LIVE_TARGET}-live:latest" \
             ./live
 
@@ -74,7 +79,7 @@ jobs:
           SUPERISO_TMPDIR: /var/iso-build
         run: |
           sudo mkdir -p /var/iso-build
-          sudo -E bash scripts/build-live-squashfs.sh \
+          sudo -E env SECURE_SNOSI=1 bash scripts/build-live-squashfs.sh \
             --oci-image "$PAYLOAD_IMAGE" \
             "localhost/${LIVE_TARGET}-live:latest" \
             "/var/iso-build/${LIVE_TARGET}.rootfs.sfs" \
@@ -95,6 +100,7 @@ jobs:
         run: |
           sudo bash live/src/build-iso.sh \
             --title "Snow Linux Live" \
+            --secure-snosi \
             --cmdline-extra "$(cat snow/live_cmdline)" \
             "/var/iso-build/${LIVE_TARGET}-boot.tar" \
             "/var/iso-build/${LIVE_TARGET}.rootfs.sfs" \
@@ -127,59 +133,12 @@ jobs:
             ${{ steps.checksum.outputs.latest_path }}
           retention-days: 7
 
-      - name: Boot verification (UEFI + serial)
+      - name: Secure Boot live-media smoke
         id: boot_verify
-        continue-on-error: true
         timeout-minutes: 10
         run: |
-          sudo apt-get install -y qemu-system-x86 ovmf socat imagemagick -qq
-
-          ISO="${{ steps.iso.outputs.path }}"
-          EFI_CODE=""; EFI_VARS=""
-          for f in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
-            [ -f "$f" ] && EFI_CODE="$f" && break
-          done
-          for f in /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd; do
-            if [ -f "$f" ]; then cp "$f" /tmp/EFI_VARS.fd; EFI_VARS="/tmp/EFI_VARS.fd"; break; fi
-          done
-
-          PFLASH=()
-          if [ -n "$EFI_CODE" ] && [ -n "$EFI_VARS" ]; then
-            PFLASH+=(-drive "if=pflash,format=raw,readonly=on,file=$EFI_CODE")
-            PFLASH+=(-drive "if=pflash,format=raw,file=$EFI_VARS")
-          fi
-
-          sudo qemu-system-x86_64 \
-            -machine type=q35,accel=kvm \
-            -cpu host -m 4G -smp 2 \
-            "${PFLASH[@]}" \
-            -cdrom "$ISO" -boot d \
-            -monitor unix:/tmp/qemu-monitor.sock,server,nowait \
-            -serial file:/tmp/serial.log \
-            -display none -daemonize
-
-          for i in $(seq 1 30); do [ -S /tmp/qemu-monitor.sock ] && break; sleep 2; done
-
-          echo "==> Waiting up to 5 minutes for live-ready..."
-          for i in $(seq 1 60); do
-            sudo grep -qE "DAKOTA_LIVE_READY|Finished live-ready\.service" \
-              /tmp/serial.log 2>/dev/null && \
-              { echo "==> Ready after $((i*5))s"; break; }
-            [ "$i" -eq 60 ] && echo "WARNING: timed out" || true
-            sleep 5
-          done
-
-          echo "screendump /tmp/screenshot.ppm" | \
-            sudo socat - UNIX-CONNECT:/tmp/qemu-monitor.sock || true
-          sleep 2
-          sudo test -f /tmp/screenshot.ppm && \
-            sudo convert /tmp/screenshot.ppm screenshot.png 2>/dev/null || true
-          echo "quit" | sudo socat - UNIX-CONNECT:/tmp/qemu-monitor.sock || true
-
-          sudo grep -qE "DAKOTA_LIVE_READY|Finished live-ready\.service" \
-            /tmp/serial.log || \
-            { echo "ERROR: live environment did not reach ready state"
-              sudo tail -50 /tmp/serial.log; exit 1; }
+          sudo apt-get install -y qemu-system-x86 ovmf mtools sbsigntool xorriso -qq
+          sudo bash test/snow-secure-boot-smoke.sh "${{ steps.iso.outputs.path }}"
 
       - name: Upload ISO to Cloudflare R2
         if: >
@@ -242,9 +201,11 @@ jobs:
           steps.boot_verify.outcome == 'success'
         run: |
           LATEST_NAME="${{ steps.iso.outputs.latest_name }}"
-          echo "## Latest Snow ISO URL" >> "$GITHUB_STEP_SUMMARY"
-          echo "- [${LATEST_NAME}](https://repository.frostyard.org/isos/${LATEST_NAME})" >> "$GITHUB_STEP_SUMMARY"
-          echo "- [${LATEST_NAME}-CHECKSUM](https://repository.frostyard.org/isos/${LATEST_NAME}-CHECKSUM)" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Latest Snow ISO URL"
+            echo "- [${LATEST_NAME}](https://repository.frostyard.org/isos/${LATEST_NAME})"
+            echo "- [${LATEST_NAME}-CHECKSUM](https://repository.frostyard.org/isos/${LATEST_NAME}-CHECKSUM)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Boot verification status
         if: always() && steps.boot_verify.outcome == 'failure'

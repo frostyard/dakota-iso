@@ -3,6 +3,8 @@
 # build-iso.sh [--store <store-squashfs>] --arch <arch>:<boot-tar>:<squashfs> [...] <output-iso>
 #
 # Creates a UEFI-bootable systemd-boot live ISO from pre-built components.
+# --secure-snosi is an explicit x86-64 Snow-only exception: Debian-trusted
+# shim -> signed GRUB -> Debian-signed kernel, never an unsigned sd-boot chain.
 #
 # Single-arch mode (backwards compatible):
 #   build-iso.sh <boot-files-tar> <squashfs-img> <output-iso>
@@ -47,12 +49,14 @@ set -euo pipefail
 
 STORE_SFS=""
 ARCH_SPECS=()
+SECURE_SNOSI=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --store) STORE_SFS="${2:?--store requires a path}"; shift 2 ;;
         --arch)  ARCH_SPECS+=("${2:?--arch requires arch:boot-tar:squashfs}"); shift 2 ;;
         --title) LIVE_TITLE="${2:?--title requires a string}"; shift 2 ;;
         --cmdline-extra) CMDLINE_EXTRA="${2:?--cmdline-extra requires a string}"; shift 2 ;;
+        --secure-snosi) SECURE_SNOSI=true; shift ;;
         *)       break ;;
     esac
 done
@@ -75,6 +79,11 @@ else
     BOOT_TAR="${1:?Usage: build-iso.sh [--store <store-squashfs>] <boot-files-tar> <squashfs-img> <output-iso>}"
     SQUASHFS_SRC="${2:?Usage: build-iso.sh [--store <store-squashfs>] <boot-files-tar> <squashfs-img> <output-iso>}"
     OUTPUT_ISO="${3:?Usage: build-iso.sh [--store <store-squashfs>] <boot-files-tar> <squashfs-img> <output-iso>}"
+fi
+
+if [[ "${SECURE_SNOSI}" == true && "${MULTI_ARCH}" == true ]]; then
+    echo "ERROR: --secure-snosi supports only the x86-64 single-architecture ISO" >&2
+    exit 1
 fi
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/iso-build.XXXXXX")
@@ -242,6 +251,22 @@ else
 
     BOOT_EFI_SRC=""
     BOOT_EFI_DEST=""
+    if [[ "${SECURE_SNOSI}" == true ]]; then
+        SHIM_SRC="${BOOT_DIR}/usr/lib/shim/shimx64.efi.signed"
+        GRUB_SRC="${BOOT_DIR}/usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed"
+        MM_SRC="${BOOT_DIR}/usr/lib/shim/mmx64.efi"
+        for f in "${SHIM_SRC}" "${GRUB_SRC}" "${MM_SRC}" "${VMLINUZ}" "${INITRD}"; do
+            [[ -f "${f}" ]] || { echo "ERROR: secure Snow boot asset missing: ${f}" >&2; exit 1; }
+        done
+        # sbverify validates the Debian-signed shim, GRUB, and kernel before
+        # either ESP or ISO-root copy exists. MokManager is intentionally not
+        # loaded by shim's fallback manager, which is never copied into the ISO.
+        for f in "${SHIM_SRC}" "${GRUB_SRC}" "${VMLINUZ}"; do
+            sbverify --list "${f}" >/dev/null || { echo "ERROR: unsigned secure boot asset: ${f}" >&2; exit 1; }
+        done
+        BOOT_EFI_SRC="${SHIM_SRC}"
+        BOOT_EFI_DEST="EFI/BOOT/BOOTX64.EFI"
+    else
     for _candidate in \
         "systemd-bootaa64.efi:EFI/BOOT/BOOTAA64.EFI" \
         "systemd-bootx64.efi:EFI/BOOT/BOOTX64.EFI"; do
@@ -253,6 +278,7 @@ else
             break
         fi
     done
+    fi
     [[ -n "${BOOT_EFI_SRC}" ]] || { echo "ERROR: no systemd-boot EFI binary found in boot-files tar"; exit 1; }
 
     for f in "${VMLINUZ}" "${INITRD}" "${BOOT_EFI_SRC}"; do
@@ -263,9 +289,25 @@ else
     echo ">>> EFI:      ${BOOT_EFI_SRC} → ${BOOT_EFI_DEST}"
 
     cp "${BOOT_EFI_SRC}" "${ESP_STAGING}/${BOOT_EFI_DEST}"
+    if [[ "${SECURE_SNOSI}" == true ]]; then
+        cp "${GRUB_SRC}" "${ESP_STAGING}/EFI/BOOT/grubx64.efi"
+        cp "${MM_SRC}" "${ESP_STAGING}/EFI/BOOT/mmx64.efi"
+        mkdir -p "${ESP_STAGING}/EFI/debian"
+        cat > "${ESP_STAGING}/EFI/BOOT/grub.cfg" << EOF
+search --no-floppy --label DAKOTA_LIVE --set=root
+set default=0
+set timeout=5
+menuentry "${LIVE_TITLE}" {
+    linux /images/pxeboot/vmlinuz root=live:LABEL=DAKOTA_LIVE rd.live.image rd.live.overlay.overlayfs=1 nvidia-drm.modeset=1 console=ttyS0,115200n8${CMDLINE_EXTRA:+ ${CMDLINE_EXTRA}}
+    initrd /images/pxeboot/initrd.img
+}
+EOF
+        cp "${ESP_STAGING}/EFI/BOOT/grub.cfg" "${ESP_STAGING}/EFI/debian/grub.cfg"
+    fi
     cp "${VMLINUZ}" "${ESP_STAGING}/images/pxeboot/vmlinuz"
     cp "${INITRD}"  "${ESP_STAGING}/images/pxeboot/initrd.img"
 
+    if [[ "${SECURE_SNOSI}" != true ]]; then
     cat > "${ESP_STAGING}/loader/loader.conf" << 'EOF'
 timeout 5
 default dakota-live.conf
@@ -290,10 +332,18 @@ linux   /images/pxeboot/vmlinuz
 initrd  /images/pxeboot/initrd.img
 options root=live:LABEL=DAKOTA_LIVE rd.live.image rd.live.overlay.overlayfs=1 enforcing=0 nvidia-drm.modeset=1 console=ttyS0,115200n8 console=ttyAMA0,115200n8${CMDLINE_EXTRA:+ ${CMDLINE_EXTRA}}
 EOF
+    fi
 
     # EFI fallback path on the ISO9660 root
     mkdir -p "${ISO_ROOT}/EFI/BOOT"
     cp "${BOOT_EFI_SRC}" "${ISO_ROOT}/${BOOT_EFI_DEST}"
+    if [[ "${SECURE_SNOSI}" == true ]]; then
+        cp "${GRUB_SRC}" "${ISO_ROOT}/EFI/BOOT/grubx64.efi"
+        cp "${MM_SRC}" "${ISO_ROOT}/EFI/BOOT/mmx64.efi"
+        mkdir -p "${ISO_ROOT}/EFI/debian"
+        cp "${ESP_STAGING}/EFI/BOOT/grub.cfg" "${ISO_ROOT}/EFI/BOOT/grub.cfg"
+        cp "${ESP_STAGING}/EFI/debian/grub.cfg" "${ISO_ROOT}/EFI/debian/grub.cfg"
+    fi
     echo ">>> EFI fallback: ${BOOT_EFI_DEST} added to ISO root"
 
     # ISO-root kernel/initramfs and loopback metadata
@@ -355,9 +405,20 @@ else
     mcopy -i "${ESP_IMG}" "${ESP_STAGING}/${BOOT_EFI_DEST}" "::/${BOOT_EFI_DEST}"
     mcopy -i "${ESP_IMG}" "${ESP_STAGING}/images/pxeboot/vmlinuz" "::/images/pxeboot/vmlinuz"
     mcopy -i "${ESP_IMG}" "${ESP_STAGING}/images/pxeboot/initrd.img" "::/images/pxeboot/initrd.img"
-    mcopy -i "${ESP_IMG}" "${ESP_STAGING}/loader/entries/dakota-live.conf" "::/loader/entries/dakota-live.conf"
+    if [[ "${SECURE_SNOSI}" != true ]]; then
+        mcopy -i "${ESP_IMG}" "${ESP_STAGING}/loader/entries/dakota-live.conf" "::/loader/entries/dakota-live.conf"
+    fi
+    if [[ "${SECURE_SNOSI}" == true ]]; then
+        mmd -i "${ESP_IMG}" ::/EFI/debian
+        mcopy -i "${ESP_IMG}" "${ESP_STAGING}/EFI/BOOT/grubx64.efi" ::/EFI/BOOT/grubx64.efi
+        mcopy -i "${ESP_IMG}" "${ESP_STAGING}/EFI/BOOT/mmx64.efi" ::/EFI/BOOT/mmx64.efi
+        mcopy -i "${ESP_IMG}" "${ESP_STAGING}/EFI/BOOT/grub.cfg" ::/EFI/BOOT/grub.cfg
+        mcopy -i "${ESP_IMG}" "${ESP_STAGING}/EFI/debian/grub.cfg" ::/EFI/debian/grub.cfg
+    fi
 fi
-mcopy -i "${ESP_IMG}" "${ESP_STAGING}/loader/loader.conf" "::/loader/loader.conf"
+if [[ "${SECURE_SNOSI}" != true ]]; then
+    mcopy -i "${ESP_IMG}" "${ESP_STAGING}/loader/loader.conf" "::/loader/loader.conf"
+fi
 
 # ── Assemble the ISO with xorriso ────────────────────────────────────────────
 echo ">>> Assembling ISO..."

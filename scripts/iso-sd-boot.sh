@@ -17,6 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
+BOOT_TAR_MEMBERS_SCRIPT="${SCRIPT_DIR}/boot-tar-members.sh"
 
 TARGET="${TARGET:?TARGET must be set}"
 OUTPUT_DIR="${OUTPUT_DIR:-output}"
@@ -24,6 +25,12 @@ WORKDIR="${WORKDIR:-${OUTPUT_DIR}}"
 DEBUG="${DEBUG:-0}"
 INSTALLER_CHANNEL="${INSTALLER_CHANNEL:-stable}"
 COMPRESSION="${COMPRESSION:-fast}"
+SECURE_SNOSI="${SECURE_SNOSI:-0}"
+
+if [[ "${SECURE_SNOSI}" == "1" && "${TARGET}" != "snow" ]]; then
+    echo "ERROR: SECURE_SNOSI is only supported for target snow" >&2
+    exit 1
+fi
 
 PAYLOAD_IMAGE=$(cat "${TARGET}/payload_ref" | tr -d '[:space:]')
 
@@ -47,7 +54,12 @@ if [ "${AVAILABLE_KB}" -lt "${REQUIRED_KB}" ]; then
 fi
 podman images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" 2>/dev/null || true
 
-just debug="${DEBUG}" installer_channel="${INSTALLER_CHANNEL}" container "${TARGET}"
+just debug="${DEBUG}" installer_channel="${INSTALLER_CHANNEL}" secure_snosi="${SECURE_SNOSI}" \
+    secure_installer_flatpak="${SECURE_INSTALLER_FLATPAK:-}" secure_installer_sha256="${SECURE_INSTALLER_SHA256:-}" \
+    secure_fisherman="${SECURE_FISHERMAN:-}" secure_fisherman_sha256="${SECURE_FISHERMAN_SHA256:-}" \
+    secure_installer_url="${SECURE_INSTALLER_URL:-}" secure_installer_url_sha256="${SECURE_INSTALLER_URL_SHA256:-}" \
+    secure_fisherman_url="${SECURE_FISHERMAN_URL:-}" secure_fisherman_url_sha256="${SECURE_FISHERMAN_URL_SHA256:-}" \
+    container "${TARGET}"
 
 echo "=== Disk space after container build ==="
 df -h "${OUTPUT_DIR}"
@@ -79,55 +91,68 @@ df -h "${OUTPUT_DIR}"
 [[ "${WORKDIR}" != "${OUTPUT_DIR}" ]] && df -h "${WORKDIR}"
 echo "Building squashfs and boot tar from localhost/${TARGET}-installer..."
 
-printf '[install]\nroot-mount-spec = "LABEL=root"\n' > "${OUTPUT_DIR}/.bootc-root-mount.toml"
+if [[ "${SECURE_SNOSI}" != "1" ]]; then
+    printf '[install]\nroot-mount-spec = "LABEL=root"\n' > "${OUTPUT_DIR}/.bootc-root-mount.toml"
+fi
 
 LIVE_TARGET=$(cat "${TARGET}/live_target" 2>/dev/null | tr -d '[:space:]' || echo "${TARGET}")
 BOOTLOADER_VARIANT=$(echo "${LIVE_TARGET}" | sed 's/-nvidia-open$//;s/-nvidia$//')
 COMPOSEFS_BACKEND=$(cat "live/src/${BOOTLOADER_VARIANT}/composefs" 2>/dev/null | tr -d '[:space:]' || echo "true")
-echo "=== Building offline OCI store (composefs=${COMPOSEFS_BACKEND}) for ${PAYLOAD_IMAGE} ==="
+if [[ "${SECURE_SNOSI}" != "1" ]]; then
+    echo "=== Building offline OCI store (composefs=${COMPOSEFS_BACKEND}) for ${PAYLOAD_IMAGE} ==="
 
-INJECT_CTR=$(_ns "buildah from --pull-never '${PAYLOAD_IMAGE}'")
-_ns "buildah copy '${INJECT_CTR}' '${OUTPUT_DIR}/.bootc-root-mount.toml' /tmp/.bootc-root-mount.toml"
-_ns "buildah run '${INJECT_CTR}' -- sh -c 'mkdir -p /usr/lib/bootc/install && cp /tmp/.bootc-root-mount.toml /usr/lib/bootc/install/00-defaults.toml && rm /tmp/.bootc-root-mount.toml'"
+    INJECT_CTR=$(_ns "buildah from --pull-never '${PAYLOAD_IMAGE}'")
+    _ns "buildah copy '${INJECT_CTR}' '${OUTPUT_DIR}/.bootc-root-mount.toml' /tmp/.bootc-root-mount.toml"
+    _ns "buildah run '${INJECT_CTR}' -- sh -c 'mkdir -p /usr/lib/bootc/install && cp /tmp/.bootc-root-mount.toml /usr/lib/bootc/install/00-defaults.toml && rm /tmp/.bootc-root-mount.toml'"
 
-if [[ "${COMPOSEFS_BACKEND}" == "true" ]]; then
-    # The payload ships verbatim to installed systems — never bake a
-    # storage.conf into it (installed podman would inherit VFS storage).
-    # VFS config for reading the embedded store lives in the live env
-    # (configure-live.sh) and the embed step below (CONTAINERS_STORAGE_CONF).
-    echo "=== Squashing ${PAYLOAD_IMAGE} to single layer (avoids VFS explosion) ==="
-    _ns "buildah commit --squash '${INJECT_CTR}' 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}'"
-    _ns "buildah rm '${INJECT_CTR}'"
-    ANNOT_CTR=$(_ns "buildah from --pull-never 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}'")
-    SQUASHED_DIFFID=$(_ns "skopeo inspect --config 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}' 2>/dev/null" | \
-        python3 -c 'import json,sys; c=json.load(sys.stdin); print(c["rootfs"]["diff_ids"][0])' 2>/dev/null || true)
-    if [[ -n "${SQUASHED_DIFFID}" ]]; then
-        echo "Updating ostree.final-diffid to ${SQUASHED_DIFFID} (composefs mode)"
-        _ns "buildah config --label 'ostree.final-diffid=${SQUASHED_DIFFID}' '${ANNOT_CTR}'"
-        _ns "buildah config --annotation 'ostree.final-diffid=${SQUASHED_DIFFID}' '${ANNOT_CTR}'"
+    if [[ "${COMPOSEFS_BACKEND}" == "true" ]]; then
+        # The payload ships verbatim to installed systems — never bake a
+        # storage.conf into it (installed podman would inherit VFS storage).
+        # VFS config for reading the embedded store lives in the live env
+        # (configure-live.sh) and the embed step below (CONTAINERS_STORAGE_CONF).
+        echo "=== Squashing ${PAYLOAD_IMAGE} to single layer (avoids VFS explosion) ==="
+        _ns "buildah commit --squash '${INJECT_CTR}' 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}'"
+        _ns "buildah rm '${INJECT_CTR}'"
+        ANNOT_CTR=$(_ns "buildah from --pull-never 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}'")
+        SQUASHED_DIFFID=$(_ns "skopeo inspect --config 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}' 2>/dev/null" | \
+            python3 -c 'import json,sys; c=json.load(sys.stdin); print(c["rootfs"]["diff_ids"][0])' 2>/dev/null || true)
+        if [[ -n "${SQUASHED_DIFFID}" ]]; then
+            echo "Updating ostree.final-diffid to ${SQUASHED_DIFFID} (composefs mode)"
+            _ns "buildah config --label 'ostree.final-diffid=${SQUASHED_DIFFID}' '${ANNOT_CTR}'"
+            _ns "buildah config --annotation 'ostree.final-diffid=${SQUASHED_DIFFID}' '${ANNOT_CTR}'"
+        fi
+        _ns "buildah commit --squash '${ANNOT_CTR}' 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}'"
+        _ns "buildah rm '${ANNOT_CTR}'"
+    else
+        # Non-composefs (bootcDirect): no squash to preserve ostree commits.
+        # Save the injected container image as an oci-archive for overlay import.
+        echo "=== Committing ${PAYLOAD_IMAGE} WITHOUT squash to preserve ostree commits ==="
+        _ns "buildah commit '${INJECT_CTR}' 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}'"
+        _ns "buildah rm '${INJECT_CTR}'"
     fi
-    _ns "buildah commit --squash '${ANNOT_CTR}' 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}'"
-    _ns "buildah rm '${ANNOT_CTR}'"
+    podman rmi "${PAYLOAD_IMAGE}" || true
 else
-    # Non-composefs (bootcDirect): no squash to preserve ostree commits.
-    # Save the injected container image as an oci-archive for overlay import.
-    echo "=== Committing ${PAYLOAD_IMAGE} WITHOUT squash to preserve ostree commits ==="
-    _ns "buildah commit '${INJECT_CTR}' 'oci-archive:${PAYLOAD_OCI}:${PAYLOAD_IMAGE}'"
-    _ns "buildah rm '${INJECT_CTR}'"
+    echo "=== Secure media skips offline OCI payload embedding; Fisherman requires an online Cosign- and policy-verified pull ==="
 fi
-
-podman rmi "${PAYLOAD_IMAGE}" || true
 
 # ── Squashfs assembly (runs in user namespace for rootless UID mapping) ───────
 #
 # All variables needed inside _ns are passed via the outer scope — no string
 # interpolation of shell vars into the bash -c argument. Instead we export them
 # and the inner bash inherits them directly.
-export OUTPUT_DIR WORKDIR TARGET PAYLOAD_IMAGE COMPOSEFS_BACKEND COMPRESSION
+export OUTPUT_DIR WORKDIR TARGET PAYLOAD_IMAGE COMPOSEFS_BACKEND COMPRESSION SECURE_SNOSI
+export BOOT_TAR_MEMBERS_SCRIPT
 export CS_STAGING SQUASHFS_ROOT SQUASHFS BOOT_TAR PAYLOAD_OCI
 
+# shellcheck disable=SC2329  # Invoked through exported function in a child shell.
 _ns_build_squashfs() {
     set -euo pipefail
+    local -a boot_tar_paths
+    mapfile -t boot_tar_paths < <(bash "${BOOT_TAR_MEMBERS_SCRIPT}" "${SECURE_SNOSI}")
+    if [[ "${ISO_SD_BOOT_TEST_CHILD_MEMBER_LIST:-0}" == "1" ]]; then
+        printf '%s\n' "${boot_tar_paths[@]}"
+        return
+    fi
 
     echo "=== Disk space inside _ns block ==="
     df -h "${OUTPUT_DIR}"
@@ -153,35 +178,37 @@ _ns_build_squashfs() {
     df -h "${OUTPUT_DIR}"
     [[ "${WORKDIR}" != "${OUTPUT_DIR}" ]] && df -h "${WORKDIR}"
 
-    if [[ "${COMPOSEFS_BACKEND}" == "true" ]]; then
-        SQUASHFS_STORAGE="${CS_STAGING}/var/lib/containers/storage"
-        STORAGE_CONF=$(mktemp "${OUTPUT_DIR}/live-storage-XXXXXX.conf")
-        mkdir -p "${SQUASHFS_STORAGE}"
-        printf '[storage]\ndriver = "vfs"\nrunroot = "/tmp/cs-runroot"\ngraphroot = "/vfs-storage"\n' > "${STORAGE_CONF}"
-        echo 'Importing OCI image into squashfs VFS containers-storage...'
-        podman run --rm \
-            --privileged \
-            -v "${PAYLOAD_OCI}:/payload.oci.tar:ro" \
-            -v "${SQUASHFS_STORAGE}:/vfs-storage" \
-            -v "${STORAGE_CONF}:/tmp/st.conf:ro" \
-            "localhost/${TARGET}-installer" \
-            sh -c "mkdir -p /tmp/cs-runroot /var/tmp && CONTAINERS_STORAGE_CONF=/tmp/st.conf skopeo copy oci-archive:/payload.oci.tar:${PAYLOAD_IMAGE} containers-storage:${PAYLOAD_IMAGE}"
-        rm -f "${PAYLOAD_OCI}" "${STORAGE_CONF}"
-    else
-        # Non-composefs: embed into overlay containers-storage.
-        SQUASHFS_STORAGE="${CS_STAGING}/usr/lib/containers/storage"
-        STORAGE_CONF=$(mktemp "${OUTPUT_DIR}/live-storage-XXXXXX.conf")
-        mkdir -p "${SQUASHFS_STORAGE}"
-        printf '[storage]\ndriver = "overlay"\nrunroot = "/tmp/cs-runroot"\ngraphroot = "/vfs-storage"\n' > "${STORAGE_CONF}"
-        echo 'Importing OCI image into squashfs overlay containers-storage...'
-        podman run --rm \
-            --privileged \
-            -v "${PAYLOAD_OCI}:/payload.oci.tar:ro" \
-            -v "${SQUASHFS_STORAGE}:/vfs-storage" \
-            -v "${STORAGE_CONF}:/tmp/st.conf:ro" \
-            "localhost/${TARGET}-installer" \
-            sh -c "mkdir -p /tmp/cs-runroot /var/tmp && CONTAINERS_STORAGE_CONF=/tmp/st.conf skopeo copy oci-archive:/payload.oci.tar:${PAYLOAD_IMAGE} containers-storage:${PAYLOAD_IMAGE}"
-        rm -f "${PAYLOAD_OCI}" "${STORAGE_CONF}"
+    if [[ "${SECURE_SNOSI}" != "1" ]]; then
+        if [[ "${COMPOSEFS_BACKEND}" == "true" ]]; then
+            SQUASHFS_STORAGE="${CS_STAGING}/var/lib/containers/storage"
+            STORAGE_CONF=$(mktemp "${OUTPUT_DIR}/live-storage-XXXXXX.conf")
+            mkdir -p "${SQUASHFS_STORAGE}"
+            printf '[storage]\ndriver = "vfs"\nrunroot = "/tmp/cs-runroot"\ngraphroot = "/vfs-storage"\n' > "${STORAGE_CONF}"
+            echo 'Importing OCI image into squashfs VFS containers-storage...'
+            podman run --rm \
+                --privileged \
+                -v "${PAYLOAD_OCI}:/payload.oci.tar:ro" \
+                -v "${SQUASHFS_STORAGE}:/vfs-storage" \
+                -v "${STORAGE_CONF}:/tmp/st.conf:ro" \
+                "localhost/${TARGET}-installer" \
+                sh -c "mkdir -p /tmp/cs-runroot /var/tmp && CONTAINERS_STORAGE_CONF=/tmp/st.conf skopeo copy oci-archive:/payload.oci.tar:${PAYLOAD_IMAGE} containers-storage:${PAYLOAD_IMAGE}"
+            rm -f "${PAYLOAD_OCI}" "${STORAGE_CONF}"
+        else
+            # Non-composefs: embed into overlay containers-storage.
+            SQUASHFS_STORAGE="${CS_STAGING}/usr/lib/containers/storage"
+            STORAGE_CONF=$(mktemp "${OUTPUT_DIR}/live-storage-XXXXXX.conf")
+            mkdir -p "${SQUASHFS_STORAGE}"
+            printf '[storage]\ndriver = "overlay"\nrunroot = "/tmp/cs-runroot"\ngraphroot = "/vfs-storage"\n' > "${STORAGE_CONF}"
+            echo 'Importing OCI image into squashfs overlay containers-storage...'
+            podman run --rm \
+                --privileged \
+                -v "${PAYLOAD_OCI}:/payload.oci.tar:ro" \
+                -v "${SQUASHFS_STORAGE}:/vfs-storage" \
+                -v "${STORAGE_CONF}:/tmp/st.conf:ro" \
+                "localhost/${TARGET}-installer" \
+                sh -c "mkdir -p /tmp/cs-runroot /var/tmp && CONTAINERS_STORAGE_CONF=/tmp/st.conf skopeo copy oci-archive:/payload.oci.tar:${PAYLOAD_IMAGE} containers-storage:${PAYLOAD_IMAGE}"
+            rm -f "${PAYLOAD_OCI}" "${STORAGE_CONF}"
+        fi
     fi
 
     echo "=== Disk space after OCI store embed ==="
@@ -206,17 +233,19 @@ _ns_build_squashfs() {
         cp -a "${MOUNT}/." "${SQUASHFS_ROOT}/"
     fi
 
-    if [[ "${COMPOSEFS_BACKEND}" == "true" ]]; then
-        mkdir -p "${SQUASHFS_ROOT}/var/lib/containers/storage"
-        echo "Copying VFS store into squashfs root..."
-        cp -a "${CS_STAGING}/var/lib/containers/storage/." "${SQUASHFS_ROOT}/var/lib/containers/storage/"
-    else
-        mkdir -p "${SQUASHFS_ROOT}/usr/lib/containers/storage"
-        echo "Copying overlay store into squashfs root..."
-        # Overlay containers-storage contains character-device whiteout files that
-        # cp -a cannot create without privileges.  Use rsync to skip them — they
-        # are write-layer artifacts not needed in the read-only additional store.
-        rsync -a --no-specials --no-devices "${CS_STAGING}/usr/lib/containers/storage/" "${SQUASHFS_ROOT}/usr/lib/containers/storage/"
+    if [[ "${SECURE_SNOSI}" != "1" ]]; then
+        if [[ "${COMPOSEFS_BACKEND}" == "true" ]]; then
+            mkdir -p "${SQUASHFS_ROOT}/var/lib/containers/storage"
+            echo "Copying VFS store into squashfs root..."
+            cp -a "${CS_STAGING}/var/lib/containers/storage/." "${SQUASHFS_ROOT}/var/lib/containers/storage/"
+        else
+            mkdir -p "${SQUASHFS_ROOT}/usr/lib/containers/storage"
+            echo "Copying overlay store into squashfs root..."
+            # Overlay containers-storage contains character-device whiteout files that
+            # cp -a cannot create without privileges.  Use rsync to skip them — they
+            # are write-layer artifacts not needed in the read-only additional store.
+            rsync -a --no-specials --no-devices "${CS_STAGING}/usr/lib/containers/storage/" "${SQUASHFS_ROOT}/usr/lib/containers/storage/"
+        fi
     fi
 
     echo "=== Disk space after creation of squashfs root ==="
@@ -234,8 +263,7 @@ _ns_build_squashfs() {
 
     tar -C "${MOUNT}" \
         -cf "${BOOT_TAR}" \
-        ./usr/lib/modules \
-        ./usr/lib/systemd/boot/efi
+        "${boot_tar_paths[@]}"
 }
 export -f _ns_build_squashfs
 
@@ -253,11 +281,12 @@ LIVE_TITLE=$(cat "${TARGET}/live_title" 2>/dev/null || echo 'Dakota Live')
 # Optional per-variant extra kernel cmdline (e.g. snow: "snow-linux.live=1"
 # activates the payload's live-session gates).
 LIVE_CMDLINE=$(cat "${TARGET}/live_cmdline" 2>/dev/null | tr -d '\n' || true)
+ISO_ARGS=(--title "${LIVE_TITLE}")
+[[ "${SECURE_SNOSI}" == "1" ]] && ISO_ARGS+=(--secure-snosi)
+[[ -n "${LIVE_CMDLINE}" ]] && ISO_ARGS+=(--cmdline-extra "${LIVE_CMDLINE}")
 TMPDIR="${OUTPUT_DIR}" \
 PATH="/usr/sbin:/usr/bin:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}" \
-    bash "live/src/build-iso.sh" \
-        --title "${LIVE_TITLE}" \
-        ${LIVE_CMDLINE:+--cmdline-extra "${LIVE_CMDLINE}"} \
+    bash "live/src/build-iso.sh" "${ISO_ARGS[@]}" \
         "${BOOT_TAR}" "${SQUASHFS}" "${OUTPUT_DIR}/${TARGET}-live.iso"
 
 echo "ISO ready: ${OUTPUT_DIR}/${TARGET}-live.iso"

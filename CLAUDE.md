@@ -146,13 +146,19 @@ boot/grub/loopback.cfg   — Ventoy/GRUB loopback metadata
 images/pxeboot/*         — kernel/initramfs copies for loopback ISO boot
 ```
 
-**No GRUB2, no shim.** El Torito UEFI → FAT ESP → systemd-boot → kernel+initramfs.
+**Generic variants:** no GRUB2 or shim: El Torito UEFI → FAT ESP → systemd-boot
+→ kernel+initramfs. **Secure Snow (`secure_snosi=1`) exception:** the ESP uses
+Debian-trusted shim → signed GRUB → Debian-signed kernel, includes MokManager,
+and excludes the shim fallback binary. It requires hash-verified installer and
+Fisherman inputs, has a restrictive Snosi container policy, and never injects
+`root-mount-spec=LABEL=root` or secure root/LUKS kernel arguments. See
+`docs/snow-secure-media.md`; full installed-system E2E remains Task 9.
 
 ### Live boot flow
 
 ```
 UEFI → El Torito → FAT ESP → systemd-boot → kernel (initramfs: dmsquash-live)
-dmsquash-live: scans for CDLABEL=DAKOTA_LIVE → mounts ISO → squashfs → overlayfs
+dmsquash-live: scans for LABEL=DAKOTA_LIVE → mounts ISO → squashfs → overlayfs
 ```
 
 ### VFS containers-storage (embedded OCI)
@@ -165,6 +171,11 @@ install offline without a network pull. This requires:
   (Build-host containers/storage emits binary tar-split; installer image uses JSON.)
 - `fisherman` scratch dir: on live ISOs `/var` is a small RAM overlay. fisherman
   detects tmpfs `/var` and uses a self-bind-mounted scratch dir on the target disk.
+
+Secure Snow (`SECURE_SNOSI=1`) is intentionally different: it embeds no local
+OCI archive or containers-storage payload. Its empty writable graphroot remains
+available for Fisherman's online immutable-image pull, which must pass the
+shipped restrictive policy and Cosign verification.
 
 ### Installer
 
@@ -470,6 +481,22 @@ podman run --rm -v /var/tmp/test:/work \
 ```
 
 ---
+
+## Snosi Task 9 external runners
+
+`test/bootc-secure-*-runner.sh` implements Dakota's side of Snosi's external
+secure install/update protocol. These runners are not general E2E recipes and
+must not be wired into CI before Task 10. They consume harness-owned
+`SNOSI_SECURE_OVMF_CODE`, `SNOSI_SECURE_OVMF_VARS`, `SNOSI_SECURE_TPM_STATE`,
+and `SNOSI_SECURE_TPM_SOCKET`; never replace those paths during an install.
+They run the reviewed `/usr/lib/snosi/fisherman` secure path, keep recovery
+bytes in mode-0600 `/run/snosi-task9` files only, and must never patch BLS or
+kernel arguments. Signed causal negative fixtures are intentionally external:
+without one, print `BLOCKED:` and exit 2 rather than a synthetic success marker.
+The fixture test is `tests/test_bootc_secure_runners.py`.
+The installer must use the composefs persistent `state/deploy/*/etc` path,
+never the legacy ostree deployment path. Recovery distinguishes TPM replacement
+from token rotation and proves the previous token is unavailable before markers.
 
 ## R2 bucket management
 
