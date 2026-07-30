@@ -3,3 +3,4 @@ output/
 __pycache__/
 *.pyc
 live/src/snow/fisherman
+.worktrees/
