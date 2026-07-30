@@ -66,6 +66,12 @@ CI uses `sudo just installer_channel=dev output_dir=/var/iso-build iso-sd-boot d
 (runs as root). The justfile detects root via `id -u` and skips `podman unshare`,
 running commands directly instead — so the same justfile works for both cases.
 
+The secure Snow publisher selects the runner-bundled `runc` through a
+job-local `/etc/containers/containers.conf.d` drop-in and verifies the effective
+runtime before its first Podman operation. GitHub runner image `20260726` ships
+Podman 5.8.4 with a default `crun` path that rejects the generated OCI version;
+this CI-only selection does not change the container policy shipped in an ISO.
+
 ### Disk space (CI and local)
 
 Dakota images are chunkified with many OCI layers (~120). Without squashing, VFS
