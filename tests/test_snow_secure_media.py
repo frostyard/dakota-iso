@@ -341,3 +341,18 @@ class TestSnowSecureMedia(unittest.TestCase):
         self.assertIn("--secure-snosi", content)
         self.assertIn("snow-secure-boot-smoke.sh", content)
         self.assertNotIn("continue-on-error: true", content)
+
+    def test_snow_publisher_selects_compatible_podman_runtime(self):
+        content = SNOW_WORKFLOW.read_text()
+        install = content.index("- name: Install dependencies")
+        runtime = content.index("- name: Configure Podman OCI runtime")
+        login = content.index("- name: Log in to GHCR")
+        self.assertLess(install, runtime)
+        self.assertLess(runtime, login)
+        for marker in (
+            "/etc/containers/containers.conf.d/99-dakota-ci-runtime.conf",
+            'runtime = "runc"',
+            "sudo podman info --format '{{.Host.OCIRuntime.Name}}'",
+            "[[ $runtime == runc ]]",
+        ):
+            self.assertIn(marker, content)

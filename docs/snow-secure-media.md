@@ -47,6 +47,11 @@ objects, not a GitHub `latest` redirect. Empty, mutable, or hash-mismatched
 values abort before the ISO is assembled; do not restore the old channel or
 gitignored local-Fisherman override to make a release pass.
 
+The GitHub publisher configures and verifies the runner-bundled `runc` before
+using Podman. This is a hosted-runner compatibility choice for Podman 5.8.4 on
+runner image `20260726`; it does not alter the live environment's runtime or
+container-signature policy.
+
 Run `test/snow-secure-boot-smoke.sh output/snow-live.iso` after a fresh secure
 build where `OVMF_CODE_4M.secboot.fd` and `OVMF_VARS_4M.ms.fd` are installed.
 It validates the ESP signatures, boots under Microsoft-enrolled firmware, and
