@@ -74,11 +74,16 @@ cat > /etc/containers/policy.json << 'POLICYEOF'
       "ghcr.io/frostyard/snow": [{"type":"sigstoreSigned","keyPath":"/usr/lib/snosi/cosign.pub","signedIdentity":{"type":"matchRepository"}}],
       "ghcr.io/frostyard/snowfield": [{"type":"sigstoreSigned","keyPath":"/usr/lib/snosi/cosign.pub","signedIdentity":{"type":"matchRepository"}}]
     },
-    "containers-storage": {"": [{"type":"insecureAcceptAnything"}]}
+    "containers-storage": {"": [{"type":"insecureAcceptAnything"}]},
+    "oci": {"": [{"type":"insecureAcceptAnything"}]},
+    "oci-archive": {"": [{"type":"insecureAcceptAnything"}]}
   }
 }
 POLICYEOF
-cat > /etc/containers/registries.d/ghcr.io.yaml << 'REGISTRIESEOF'
+cat > /etc/containers/registries.d/frostyard.yaml << 'REGISTRIESEOF'
+# Cosign v2.6.1 stores key-based signatures as registry attachments. This is
+# limited to GHCR; policy.json still rejects every repository but the three
+# explicitly scoped Frostyard images.
 docker:
   ghcr.io:
     use-sigstore-attachments: true

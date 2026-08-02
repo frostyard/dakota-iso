@@ -245,6 +245,8 @@ class TestSnowSecureMedia(unittest.TestCase):
         for image in ("cayo", "snow", "snowfield"):
             self.assertIn(f'ghcr.io/frostyard/{image}', policy)
         self.assertNotIn('"docker": {"": [{"type":"insecureAcceptAnything"}]', policy)
+        self.assertIn('"oci": {"": [{"type":"insecureAcceptAnything"}]}', policy)
+        self.assertIn('"oci-archive": {"": [{"type":"insecureAcceptAnything"}]}', policy)
 
     def test_secure_container_installs_required_public_tools(self):
         content = CONTAINERFILE.read_text()
@@ -293,7 +295,7 @@ class TestSnowSecureMedia(unittest.TestCase):
         content = SNOW_HOOK.read_text()
         for marker in (
             "/etc/containers/policy.json",
-            "/etc/containers/registries.d/ghcr.io.yaml",
+            "/etc/containers/registries.d/frostyard.yaml",
             "use-sigstore-attachments: true",
             "mkdir -p /usr/lib/snosi",
             "/usr/lib/snosi/cosign.pub",
@@ -306,7 +308,8 @@ class TestSnowSecureMedia(unittest.TestCase):
         self.assertNotIn("pcr-signing.key", content)
         secure_block = content.split('if [[ "${SECURE_SNOSI:-0}" == "1" ]]; then', 1)[1]
         self.assertIn("policy.json", secure_block)
-        self.assertIn("ghcr.io.yaml", secure_block)
+        self.assertIn("frostyard.yaml", secure_block)
+        self.assertNotIn("ghcr.io.yaml", secure_block)
 
     def test_secure_boot_smoke_has_enforced_and_negative_paths(self):
         content = SMOKE.read_text()
