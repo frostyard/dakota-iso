@@ -56,13 +56,22 @@ ssh_port() { python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0))
 #
 # Sets SNOSI_TASK9_LIVE_KEY for live_ssh/scp_live. Echoes the two -smbios
 # arguments for the caller to splice into its QEMU invocation.
-live_ssh_credentials() {
-    local work="$1" pub unit dropin
-    [[ -n "${SNOSI_TASK9_LIVE_KEY:-}" ]] || {
-        SNOSI_TASK9_LIVE_KEY="$work/live_ssh_key"
-        ssh-keygen -q -t ed25519 -N '' -C snosi-task9-live -f "$SNOSI_TASK9_LIVE_KEY" </dev/null
-    }
+# Create the harness keypair. MUST be called from the parent shell, not from
+# inside the command substitution that builds the credentials: `mapfile < <(...)`
+# runs in a subshell, so an export there is lost and live_ssh later dereferences
+# an unset SNOSI_TASK9_LIVE_KEY.
+live_ssh_keygen() {
+    local work="$1"
+    [[ -n "${SNOSI_TASK9_LIVE_KEY:-}" ]] || SNOSI_TASK9_LIVE_KEY="$work/live_ssh_key"
     export SNOSI_TASK9_LIVE_KEY
+    [[ -f "$SNOSI_TASK9_LIVE_KEY" ]] || \
+        ssh-keygen -q -t ed25519 -N '' -C snosi-task9-live -f "$SNOSI_TASK9_LIVE_KEY" </dev/null
+}
+
+live_ssh_credentials() {
+    local pub unit dropin
+    [[ -n "${SNOSI_TASK9_LIVE_KEY:-}" && -f "${SNOSI_TASK9_LIVE_KEY}.pub" ]] \
+        || die "live_ssh_keygen must run before live_ssh_credentials"
     pub="$(base64 -w0 <"${SNOSI_TASK9_LIVE_KEY}.pub")"
 
     # ssh-keygen -A because the live image generates host keys lazily; starting
@@ -99,7 +108,8 @@ start_live() {
     [[ -r "$iso" ]] || blocked "secure Dakota ISO artifact is required"
     qemu="$(qemu_bin)"; need swtpm; need ssh-keygen
     local -a creds=()
-    mapfile -t creds < <(live_ssh_credentials "$work")
+    live_ssh_keygen "$work"
+    mapfile -t creds < <(live_ssh_credentials)
     "$qemu" -machine q35,accel=kvm -cpu host -m 8G -smp 4 \
         "${creds[@]}" \
         -drive "if=pflash,format=raw,readonly=on,file=$SNOSI_SECURE_OVMF_CODE" \
