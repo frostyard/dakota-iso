@@ -108,6 +108,11 @@ start_live() {
     [[ -r "$iso" ]] || blocked "secure Dakota ISO artifact is required"
     qemu="$(qemu_bin)"; need swtpm; need ssh-keygen
     local -a creds=()
+    # Remember where the guest console lands so a timeout can show it. Without
+    # this a failed wait reports only that SSH never came up, which says nothing
+    # about whether the guest booted, panicked, or simply never started sshd.
+    SNOSI_TASK9_SERIAL="$work/serial.log"
+    export SNOSI_TASK9_SERIAL
     live_ssh_keygen "$work"
     mapfile -t creds < <(live_ssh_credentials)
     "$qemu" -machine q35,accel=kvm -cpu host -m 8G -smp 4 \
@@ -145,5 +150,12 @@ root_ssh() { ssh -i "$1" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKno
 wait_live_ssh() {
     local port="$1" attempts="${SNOSI_TASK9_LIVE_SSH_ATTEMPTS:-120}"
     for _ in $(seq 1 "$attempts"); do live_ssh "$port" true >/dev/null 2>&1 && return; sleep 5; done
+    if [[ -n "${SNOSI_TASK9_SERIAL:-}" && -r "$SNOSI_TASK9_SERIAL" ]]; then
+        printf -- '--- guest serial console, last 120 lines (%s) ---\n' "$SNOSI_TASK9_SERIAL" >&2
+        tail -n 120 "$SNOSI_TASK9_SERIAL" >&2 || true
+        printf -- '--- end serial console ---\n' >&2
+    else
+        printf 'No serial log recorded at %s\n' "${SNOSI_TASK9_SERIAL:-<unset>}" >&2
+    fi
     die "Dakota live SSH did not become ready after $((attempts * 5))s"
 }
