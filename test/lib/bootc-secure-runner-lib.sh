@@ -86,9 +86,12 @@ systemctl start ssh.socket 2>/dev/null || systemctl start ssh.service'"
     dropin="[Unit]
 Wants=snosi-task9-ssh.service"
 
-    printf '%s\n%s\n' \
-        "-smbios type=11,value=io.systemd.credential.binary:systemd.extra-unit.snosi-task9-ssh.service=$(printf '%s' "$unit" | base64 -w0)" \
-        "-smbios type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$(printf '%s' "$dropin" | base64 -w0)"
+    # One argv element per line. `-smbios` and its value must be SEPARATE
+    # arguments; emitting "-smbios type=11,..." as a single element makes QEMU
+    # report `invalid option` on the whole string.
+    printf '%s\n%s\n%s\n%s\n' \
+        '-smbios' "type=11,value=io.systemd.credential.binary:systemd.extra-unit.snosi-task9-ssh.service=$(printf '%s' "$unit" | base64 -w0)" \
+        '-smbios' "type=11,value=io.systemd.credential.binary:systemd.unit-dropin.multi-user.target=$(printf '%s' "$dropin" | base64 -w0)"
 }
 
 start_live() {
