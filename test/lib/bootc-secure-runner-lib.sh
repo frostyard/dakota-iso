@@ -138,4 +138,12 @@ stop_vm() { local work="$1" pid; [[ -S "$work/monitor.sock" ]] && printf 'quit\n
 live_ssh() { ssh -i "$SNOSI_TASK9_LIVE_KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o BatchMode=yes -o ConnectTimeout=5 -p "$1" "${SNOSI_TASK9_LIVE_USER:-root}"@127.0.0.1 "$2"; }
 scp_live() { scp -q -i "$SNOSI_TASK9_LIVE_KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -P "$1" "$2" "${SNOSI_TASK9_LIVE_USER:-root}"@127.0.0.1:"$3"; }
 root_ssh() { ssh -i "$1" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3 -p "$2" root@127.0.0.1 true; }
-wait_live_ssh() { local port="$1"; for _ in $(seq 1 60); do live_ssh "$port" true >/dev/null 2>&1 && return; sleep 5; done; die "Dakota live SSH did not become ready"; }
+# 600s by default, not 300s. The secure Snow media boots a full desktop session
+# before the injected unit can start sshd, and 60x5s was marginal enough to pass
+# on one run and time out on the next against identical media. frostyard/lab
+# uses the same 600s budget for this ISO in its other lanes.
+wait_live_ssh() {
+    local port="$1" attempts="${SNOSI_TASK9_LIVE_SSH_ATTEMPTS:-120}"
+    for _ in $(seq 1 "$attempts"); do live_ssh "$port" true >/dev/null 2>&1 && return; sleep 5; done
+    die "Dakota live SSH did not become ready after $((attempts * 5))s"
+}
