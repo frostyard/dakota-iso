@@ -143,8 +143,18 @@ class TestBootcSecureRunners(unittest.TestCase):
         library = (REPO / "test/lib/bootc-secure-runner-lib.sh").read_text()
         recovery = RECOVERY.read_text()
         self.assertIn("scp_live", library)
-        self.assertIn("sshpass -p", library)
-        self.assertIn("BatchMode=no", library)
+        # Non-interactive is now proven by key auth plus BatchMode=yes rather
+        # than by supplying a password. The published secure media has sshd
+        # installed but disabled and liveuser has an empty password hash, so
+        # the previous `sshpass -p live liveuser@...` transport could never
+        # connect; the harness injects a one-shot enabling unit as a systemd
+        # credential over SMBIOS instead. Assert sshpass is GONE — reintroducing
+        # it would mean either a password on user-facing media or a transport
+        # that cannot work.
+        self.assertNotIn("sshpass", library)
+        self.assertIn('-i "$SNOSI_TASK9_LIVE_KEY"', library)
+        self.assertIn("BatchMode=yes", library)
+        self.assertIn("io.systemd.credential.binary:systemd.extra-unit", library)
         self.assertIn("hostfwd=tcp:127.0.0.1:", library)
         self.assertIn("stop_vm", library)
         self.assertIn("old_unavailable_proven=1", recovery)

@@ -5,7 +5,7 @@ set -euo pipefail
 source "$(dirname "$0")/lib/bootc-secure-runner-lib.sh"
 [[ "$#" == 5 && "$1" == --non-interactive && "$2" == --iso && "$4" == --recipe ]] || { echo "Usage: $0 --non-interactive --iso ISO --recipe RECIPE" >&2; exit 1; }
 ISO="$3" RECIPE="$5"; secure_env; validate_recipe "$RECIPE"
-need ssh; need sshpass; need scp; need socat
+need ssh; need ssh-keygen; need scp; need socat
 DISK="$(json_string "$RECIPE" target_disk)"; RECOVERY="$(json_string "$RECIPE" recovery_key)"; PUBKEY="$(json_string "$RECIPE" root_ssh_authorized_key)"
 [[ -b "$DISK" || -f "$DISK" ]] || blocked "target disk is unavailable"; [[ -r "$RECOVERY" && -r "$PUBKEY" ]] || blocked "recovery credential or test SSH public key is unavailable"
 WORK="$(mktemp -d /var/tmp/snosi-task9-install.XXXXXX)"; umask 077; trap 'stop_vm "$WORK"; rm -rf "$WORK"' EXIT

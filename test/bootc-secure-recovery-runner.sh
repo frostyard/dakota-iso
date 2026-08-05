@@ -5,7 +5,7 @@ set -euo pipefail
 source "$(dirname "$0")/lib/bootc-secure-runner-lib.sh"
 [[ "$#" == 14 && "$1" == --case && "$3" == --profile && "$5" == --oci-ref && "$7" == --state && "$9" == --iso && "${11}" == --recipe && "${13}" == --recovery-key ]] || { echo "Usage: $0 --case CASE --profile PROFILE --oci-ref REF --state STATE --iso ISO --recipe RECIPE --recovery-key KEY" >&2; exit 1; }
 CASE="$2"; case "$CASE" in tpm-replacement|recovery-reenrollment) ;; *) die "unknown secure recovery case: $CASE";; esac
-validate_state "$8"; validate_recipe "${12}"; secure_env; need ssh; need sshpass; need scp; need socat; need swtpm; need jq
+validate_state "$8"; validate_recipe "${12}"; secure_env; need ssh; need ssh-keygen; need scp; need socat; need swtpm; need jq
 DISK="$(json_string "$8" target_disk)"; SSH_KEY="$(json_string "$8" ssh_private_key)"; RECOVERY="${14}"; [[ -r "$RECOVERY" && -r "$SSH_KEY" && ( -b "$DISK" || -f "$DISK" ) ]] || blocked "recovery credential, state SSH key, or retained target disk is unavailable"
 WORK="$(mktemp -d /var/tmp/snosi-task9-recovery.XXXXXX)"; umask 077
 stop_tpm() { [[ -f "$WORK/swtpm.pid" ]] && kill "$(<"$WORK/swtpm.pid")" 2>/dev/null || true; }
