@@ -77,14 +77,20 @@ live_ssh_credentials() {
     # ssh-keygen -A because the live image generates host keys lazily; starting
     # sshd without them fails.
     #
-    # Start SSH only if NOTHING is already serving it. The live image socket-
-    # activates sshd, so ssh.socket is usually listening by the time this runs --
-    # and ssh.service Conflicts with ssh.socket, so starting the service stops
-    # the working socket and then fails, leaving nothing listening at all. This
-    # unit was breaking the very SSH it exists to provide, and only sometimes:
-    # when it won the race against socket activation it worked, when it lost it
-    # did not. That is what the intermittent \"Dakota live SSH did not become
-    # ready\" was.
+    # NEVER touch ssh.service when the image socket-activates sshd. Debian's
+    # ssh.service conflicts with ssh.socket, so starting the service stops the
+    # working socket and then fails, leaving nothing listening -- this unit was
+    # breaking the very SSH it exists to provide.
+    #
+    # A previous attempt guarded on `is-active`, which was not enough: with
+    # socket activation, connecting to the socket is itself what starts
+    # ssh.service, so the failure reappears at connect time no matter what this
+    # unit does or does not start. Preferring the socket outright is the only
+    # version that cannot regress.
+    #
+    # If nothing ends up listening, say why on the console rather than leaving a
+    # bare \"did not become ready\" 600 seconds later -- that ambiguity has cost
+    # two diagnosis rounds already.
     unit="[Unit]
 Description=snosi Task 9 QA SSH (harness-injected; never present on installed systems)
 After=network-online.target
@@ -99,7 +105,7 @@ chmod 600 /root/.ssh/authorized_keys; \
 install -d -m 0755 /etc/ssh/sshd_config.d; \
 printf \"%s\\n\" \"PermitRootLogin prohibit-password\" \"PasswordAuthentication no\" \"KbdInteractiveAuthentication no\" > /etc/ssh/sshd_config.d/99-snosi-task9.conf; \
 ssh-keygen -A || true; \
-if ! systemctl is-active --quiet ssh.socket && ! systemctl is-active --quiet ssh.service; then systemctl start ssh.socket || systemctl start ssh.service; fi'"
+if systemctl list-unit-files ssh.socket >/dev/null 2>&1; then systemctl start ssh.socket || true; else systemctl start ssh.service || true; fi; systemctl is-active --quiet ssh.socket || systemctl is-active --quiet ssh.service || { echo \"QA-SSH: nothing listening; sshd -t says:\"; sshd -t 2>&1 | head -5; systemctl status ssh.socket ssh.service --no-pager -l 2>&1 | head -30; }'"
     dropin="[Unit]
 Wants=snosi-task9-ssh.service"
 
