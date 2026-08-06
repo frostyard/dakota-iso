@@ -77,20 +77,23 @@ live_ssh_credentials() {
     # ssh-keygen -A because the live image generates host keys lazily; starting
     # sshd without them fails.
     #
-    # NEVER touch ssh.service when the image socket-activates sshd. Debian's
-    # ssh.service conflicts with ssh.socket, so starting the service stops the
-    # working socket and then fails, leaving nothing listening -- this unit was
-    # breaking the very SSH it exists to provide.
+    # Prefer ssh.socket when the image has one, and never start ssh.service
+    # alongside it.
     #
-    # A previous attempt guarded on `is-active`, which was not enough: with
-    # socket activation, connecting to the socket is itself what starts
-    # ssh.service, so the failure reappears at connect time no matter what this
-    # unit does or does not start. Preferring the socket outright is the only
-    # version that cannot regress.
+    # What is NOT yet established is why ssh.service fails on this image. Two
+    # earlier fixes here were built on guesses about that -- first "our unit
+    # stops the working socket", then "connecting is what starts the service"
+    # -- and both were wrong in a way that only showed up a run later. So this
+    # version stops guessing and reports.
     #
-    # If nothing ends up listening, say why on the console rather than leaving a
-    # bare \"did not become ready\" 600 seconds later -- that ambiguity has cost
-    # two diagnosis rounds already.
+    # The report is UNCONDITIONAL. The previous guard only spoke up when
+    # nothing was listening, which is exactly the case that did not happen:
+    # ssh.socket was listening, ssh.service had failed, the harness still could
+    # not log in for 600s, and the console said nothing at all. A QA-only image
+    # can afford the noise; another blind 600-second timeout it cannot.
+    #
+    # `ss` is what says whether anything is actually SERVING port 22, which is
+    # the question -- a unit being \"active\" is not the same claim.
     unit="[Unit]
 Description=snosi Task 9 QA SSH (harness-injected; never present on installed systems)
 After=network-online.target
@@ -105,7 +108,11 @@ chmod 600 /root/.ssh/authorized_keys; \
 install -d -m 0755 /etc/ssh/sshd_config.d; \
 printf \"%s\\n\" \"PermitRootLogin prohibit-password\" \"PasswordAuthentication no\" \"KbdInteractiveAuthentication no\" > /etc/ssh/sshd_config.d/99-snosi-task9.conf; \
 ssh-keygen -A || true; \
-if systemctl list-unit-files ssh.socket >/dev/null 2>&1; then systemctl start ssh.socket || true; else systemctl start ssh.service || true; fi; systemctl is-active --quiet ssh.socket || systemctl is-active --quiet ssh.service || { echo \"QA-SSH: nothing listening; sshd -t says:\"; sshd -t 2>&1 | head -5; systemctl status ssh.socket ssh.service --no-pager -l 2>&1 | head -30; }'"
+if systemctl list-unit-files ssh.socket >/dev/null 2>&1; then systemctl start ssh.socket || true; else systemctl start ssh.service || true; fi; \
+echo \"QA-SSH: socket=\$(systemctl is-active ssh.socket 2>&1) service=\$(systemctl is-active ssh.service 2>&1)\"; \
+{ ss -ltnp 2>/dev/null | grep -E \":22[[:space:]]\" || echo \"QA-SSH: nothing is listening on :22\"; } || true; \
+{ echo \"QA-SSH: sshd -t:\"; sshd -t 2>&1 | head -5; } || true; \
+{ echo \"QA-SSH: journal:\"; journalctl -u ssh.service -u ssh.socket -u ssh@.service --no-pager -n 40 2>&1 | tail -40; } || true'"
     dropin="[Unit]
 Wants=snosi-task9-ssh.service"
 
