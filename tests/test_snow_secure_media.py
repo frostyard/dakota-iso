@@ -23,7 +23,7 @@ SMOKE = REPO / "test" / "snow-secure-boot-smoke.sh"
 SNOW_WORKFLOW = REPO / ".github" / "workflows" / "build-iso-snow.yml"
 
 
-def make_boot_fixture(work: Path, secure: bool) -> tuple[Path, dict[str, str]]:
+def make_boot_fixture(work: Path, secure: bool, signed: bool = True) -> tuple[Path, dict[str, str]]:
     """Build a minimal boot tar and stub external ISO tools for shell tests."""
     tree = work / "tree"
     modules = tree / "usr/lib/modules/6.1-test"
@@ -50,7 +50,16 @@ def make_boot_fixture(work: Path, secure: bool) -> tuple[Path, dict[str, str]]:
     tools.mkdir()
     log = work / "mcopy.log"
     scripts = {
-        "sbverify": "#!/bin/sh\nexit 0\n",
+        # sbverify REPORTS rather than verifies: it exits 0 for a signed and an
+        # unsigned binary alike, so only its OUTPUT distinguishes them. A stub
+        # that merely exits 0 therefore models an UNSIGNED asset -- which is
+        # what this stub used to be, and why the old exit-status check passed
+        # its own tests while being unable to reject anything.
+        "sbverify": (
+            "#!/bin/sh\nprintf '%s\\n' 'signature 1' 'image signature issuers:' ' - /CN=Test'\nexit 0\n"
+            if signed
+            else "#!/bin/sh\necho 'No signature table present'\nexit 0\n"
+        ),
         "mkfs.fat": "#!/bin/sh\nexit 0\n",
         "mmd": "#!/bin/sh\nexit 0\n",
         "mcopy": "#!/bin/sh\ncat \"$3\" >> \"$MCOPY_LOG\" 2>/dev/null || true\nexit 0\n",
@@ -111,6 +120,27 @@ class TestSnowSecureMedia(unittest.TestCase):
                 self.assertIn(argument, secure_grub)
             for forbidden in ("enforcing=0", "CDLABEL=", "root=live:/dev/sr0", "console=ttyAMA0"):
                 self.assertNotIn(forbidden, secure_grub)
+
+    def test_secure_build_refuses_an_unsigned_asset(self):
+        """The guard must reject an unsigned asset, not merely a missing one.
+
+        `sbverify --list` exits 0 whether or not a binary carries a signature,
+        so gating on its exit status could never fail this way. The fixture's
+        unsigned stub reproduces exactly that: it exits 0 and reports
+        "No signature table present". Before the check read sbverify's output,
+        this build succeeded and shipped media that firmware refuses at the
+        first hop with EFI_ACCESS_DENIED.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            boot_tar, env = make_boot_fixture(work, secure=True, signed=False)
+            result = subprocess.run(
+                ["bash", "-u", str(BUILD_ISO), "--secure-snosi", str(boot_tar), str(work / "root.sfs"), str(work / "out.iso")],
+                env=env, text=True, capture_output=True,
+            )
+            self.assertNotEqual(result.returncode, 0, "unsigned secure boot asset was accepted")
+            self.assertIn("unsigned secure boot asset", result.stderr)
+            self.assertFalse((work / "out.iso").exists(), "an ISO was produced from an unsigned asset")
 
     def test_generic_fixture_keeps_original_selinux_cmdline(self):
         with tempfile.TemporaryDirectory() as tmp:

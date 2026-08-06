@@ -261,24 +261,6 @@ else
         # sbverify validates the Debian-signed shim, GRUB, and kernel before
         # either ESP or ISO-root copy exists. MokManager is intentionally not
         # loaded by shim's fallback manager, which is never copied into the ISO.
-        #
-        # Test the OUTPUT, not the exit status. `sbverify --list` reports rather
-        # than verifies, and exits 0 for a signed and an unsigned binary alike:
-        #
-        #   $ sbverify --list shimx64.efi         # unsigned
-        #   No signature table present
-        #   $ echo $?
-        #   0
-        #
-        # Checking the status therefore caught only a missing file or a missing
-        # sbverify -- never the unsigned asset this guard exists to stop. That
-        # matters here more than most places: this is secure media whose whole
-        # premise is a verified chain, and Debian ships unsigned binaries beside
-        # the signed ones under names one character apart.
-        #
-        # Captured into a variable rather than piped to grep: this script runs
-        # under `set -o pipefail`, and `grep -q` exits at the first match, which
-        # SIGPIPEs sbverify and fails the pipeline on success.
         for f in "${SHIM_SRC}" "${GRUB_SRC}" "${VMLINUZ}"; do
             sig="$(sbverify --list "${f}" 2>/dev/null || true)"
             [[ "${sig}" == *"image signature issuers:"* ]] \
