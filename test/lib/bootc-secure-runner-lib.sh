@@ -75,8 +75,16 @@ live_ssh_credentials() {
     pub="$(base64 -w0 <"${SNOSI_TASK9_LIVE_KEY}.pub")"
 
     # ssh-keygen -A because the live image generates host keys lazily; starting
-    # sshd without them fails. ssh.socket first, falling back to ssh.service,
-    # covers both Debian activation styles.
+    # sshd without them fails.
+    #
+    # Start SSH only if NOTHING is already serving it. The live image socket-
+    # activates sshd, so ssh.socket is usually listening by the time this runs --
+    # and ssh.service Conflicts with ssh.socket, so starting the service stops
+    # the working socket and then fails, leaving nothing listening at all. This
+    # unit was breaking the very SSH it exists to provide, and only sometimes:
+    # when it won the race against socket activation it worked, when it lost it
+    # did not. That is what the intermittent \"Dakota live SSH did not become
+    # ready\" was.
     unit="[Unit]
 Description=snosi Task 9 QA SSH (harness-injected; never present on installed systems)
 After=network-online.target
@@ -91,7 +99,7 @@ chmod 600 /root/.ssh/authorized_keys; \
 install -d -m 0755 /etc/ssh/sshd_config.d; \
 printf \"%s\\n\" \"PermitRootLogin prohibit-password\" \"PasswordAuthentication no\" \"KbdInteractiveAuthentication no\" > /etc/ssh/sshd_config.d/99-snosi-task9.conf; \
 ssh-keygen -A || true; \
-systemctl start ssh.socket 2>/dev/null || systemctl start ssh.service'"
+if ! systemctl is-active --quiet ssh.socket && ! systemctl is-active --quiet ssh.service; then systemctl start ssh.socket || systemctl start ssh.service; fi'"
     dropin="[Unit]
 Wants=snosi-task9-ssh.service"
 
