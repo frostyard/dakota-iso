@@ -1,5 +1,5 @@
 #!/usr/bin/bash
-set -euo pipefail
+set -Eeuo pipefail
 # shellcheck source=lib/bootc-secure-runner-lib.sh
 # shellcheck disable=SC1091 # Resolved from this script's directory at runtime.
 source "$(dirname "$0")/lib/bootc-secure-runner-lib.sh"
@@ -9,7 +9,25 @@ validate_state "$8"; validate_recipe "${12}"; secure_env; need ssh; need ssh-key
 DISK="$(json_string "$8" target_disk)"; SSH_KEY="$(json_string "$8" ssh_key)"; RECOVERY="${14}"; [[ -r "$RECOVERY" && -r "$SSH_KEY" && ( -b "$DISK" || -f "$DISK" ) ]] || blocked "recovery credential, state SSH key, or retained target disk is unavailable"
 WORK="$(mktemp -d /var/tmp/snosi-task9-recovery.XXXXXX)"; umask 077
 stop_tpm() { [[ -f "$WORK/swtpm.pid" ]] && kill "$(<"$WORK/swtpm.pid")" 2>/dev/null || true; }
+# Name the failure. Every deliberate exit here goes through die/blocked, which
+# print a reason, but any OTHER nonzero command dies on `set -e` with nothing
+# said -- and snosi can only report "failed or omitted its completion marker".
+# That reduced a real defect to four stray ssh lines and cost a whole lane run
+# to re-observe. `set -E` propagates this trap into functions and subshells;
+# without it the trap does not fire inside assert_stale_token_rejected.
+on_err() {
+    local status=$? line=$1 cmd=$2
+    printf 'ERROR: %s: line %s exited %s: %s\n' "${0##*/}" "$line" "$status" "$cmd" >&2
+    printf 'ERROR: last phase reached: %s\n' "${PHASE:-<none>}" >&2
+    if [[ -r "$WORK/serial.log" ]]; then
+        printf -- '--- guest serial console, last 60 lines ---\n' >&2
+        tail -n 60 "$WORK/serial.log" >&2 || true
+        printf -- '--- end serial console ---\n' >&2
+    fi
+}
+trap 'on_err "$LINENO" "$BASH_COMMAND"' ERR
 trap 'stop_vm "$WORK"; stop_tpm; rm -f "$SNOSI_SECURE_TPM_SOCKET"; rm -rf "$WORK"' EXIT
+phase() { PHASE="$1"; printf 'recovery-runner: %s\n' "$1" >&2; }
 start_tpm() { swtpm socket --tpm2 --tpmstate "dir=$SNOSI_SECURE_TPM_STATE" --ctrl "type=unixio,path=$SNOSI_SECURE_TPM_SOCKET" --pid "file=$WORK/swtpm.pid" --daemon; }
 old_unavailable_proven=0
 assert_stale_token_rejected() {
@@ -21,6 +39,7 @@ assert_stale_token_rejected() {
     done
     ((seen)) || blocked "replacement boot produced no recovery prompt or boot signal"
     old_unavailable_proven=1
+    phase "stale token rejected; stopping the replacement-TPM VM"
     stop_vm "$WORK"; rm -f "$WORK/monitor.sock" "$WORK/qemu.pid"
 }
 case "$CASE" in
@@ -33,9 +52,16 @@ case "$CASE" in
         start_tpm
         ;;
 esac
-PORT="$(ssh_port)"; start_live "${10}" "$DISK" "$WORK" "$PORT"; wait_live_ssh "$PORT"
+phase "allocating a port for the live guest"
+PORT="$(ssh_port)"
+phase "starting the live guest from ${10}"
+start_live "${10}" "$DISK" "$WORK" "$PORT"
+phase "waiting for live guest SSH on 127.0.0.1:$PORT"
+wait_live_ssh "$PORT"
+phase "staging the recovery credential in the live guest"
 live_ssh "$PORT" "sudo install -d -m 0700 /run/snosi-task9"
 scp_live "$PORT" "$RECOVERY" /run/snosi-task9/recovery.key
+phase "rotating the LUKS TPM token"
 # shellcheck disable=SC2016 # This is intentionally expanded by the remote shell.
 live_ssh "$PORT" 'sudo bash -ceu '"'"'mapfile -t luks < <(lsblk -nrpo NAME,FSTYPE /dev/vda | awk "$2==\"crypto_LUKS\"{print \$1}"); ((${#luks[@]} == 1)) || { echo "expected exactly one LUKS device" >&2; exit 1; }; cryptsetup open --key-file=/run/snosi-task9/recovery.key "${luks[0]}" root; backing=$(cryptsetup status root | awk "\$1==\"device:\"{print \$2;exit}"); [[ "$backing" == "${luks[0]}" ]] || exit 1; old_token=$(cryptsetup luksDump --dump-json-metadata "$backing" | jq -c ".tokens | to_entries[] | select(.value.type == \"systemd-tpm2\")"); m=$(mktemp -d); mount /dev/mapper/root "$m"; esp=$(lsblk -nrpo NAME,PARTTYPE /dev/vda | awk "tolower(\$2)==\"c12a7328-f81f-11d2-ba4b-00a0c93ec93b\"{print \$1}"); test $(wc -w <<<"$esp") -eq 1; mount "$esp" "$m/boot/efi"; entry=$(find "$m/boot/efi/loader/entries" -name "*.conf" | head -1); uki=$(awk "\$1==\"uki\" || \$1==\"efi\"{print \$2;exit}" "$entry"); cp "$m/boot/efi/${uki#/}" /run/uki-copy.efi; objcopy --dump-section .pcrpkey=/run/pcr-public /run/uki-copy.efi /run/uki-discard.efi; rm -f /run/uki-copy.efi /run/uki-discard.efi; systemd-cryptenroll --wipe-slot=tpm2 "$backing"; test -z "$(cryptsetup luksDump --dump-json-metadata "$backing" | jq -r ".tokens | to_entries[]? | select(.value.type == \"systemd-tpm2\") | .key")"; systemd-cryptenroll --unlock-key-file=/run/snosi-task9/recovery.key --tpm2-device=auto --tpm2-pcrs= --tpm2-public-key=/run/pcr-public --tpm2-public-key-pcrs=11 --tpm2-pcrlock= "$backing"; new_token=$(cryptsetup luksDump --dump-json-metadata "$backing" | jq -c ".tokens | to_entries[] | select(.value.type == \"systemd-tpm2\")"); [[ "$old_token" != "$new_token" ]]; cryptsetup open --test-passphrase --key-file=/run/snosi-task9/recovery.key "$backing"; rm -rf /run/snosi-task9 /run/pcr-public; umount "$m/boot/efi"; umount "$m"; rmdir "$m"; cryptsetup close root'"'"''
 if [[ "$CASE" == recovery-reenrollment ]]; then
