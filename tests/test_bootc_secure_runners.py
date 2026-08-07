@@ -204,6 +204,10 @@ class TestBootcSecureRunners(unittest.TestCase):
         for name, setup in (
             ("no pid file", ""),
             ("process already gone", 'printf %s "$$" > "$W/qemu.pid"'),
+            # QEMU removes its own -pidfile as it exits, so a pid file can be
+            # present-then-absent or caught mid-write. Neither is a failure to
+            # stop anything: there is nothing left to stop.
+            ("empty pid file", 'touch "$W/qemu.pid"'),
         ):
             with self.subTest(path=name):
                 # A pid that cannot exist beats reusing a live one: $$ is this
@@ -225,6 +229,14 @@ class TestBootcSecureRunners(unittest.TestCase):
                     f"stop_vm failed on the '{name}' path: {run.stderr}",
                 )
                 self.assertIn("stop_vm returned 0", run.stdout)
+
+        # Pin the shape, not just the outcome: the three cases above cannot
+        # exercise the window between an -f test and a later read, and that
+        # window is what actually failed a lane run. One tolerant read closes
+        # it; test-then-read reopens it however the tests happen to pass.
+        stop_vm = library.read_text().split("stop_vm()", 1)[1].split("\n", 1)[0]
+        self.assertNotIn('[[ -f "$work/qemu.pid" ]]', stop_vm)
+        self.assertIn('cat "$work/qemu.pid" 2>/dev/null', stop_vm)
 
     def test_recovery_rearms_tpm_after_stopping_the_vm(self):
         # The replacement-TPM case stops a VM and then starts another one

@@ -177,7 +177,14 @@ start_installed() {
 # and succeeded only in the had-to-SIGKILL branch. Inert in the two EXIT-trap
 # callers, fatal in the one that calls it as a function's last command under
 # `set -e`: the recovery runner died there with no message for two lane runs.
-stop_vm() { local work="$1" pid; [[ -S "$work/monitor.sock" ]] && printf 'quit\n' | socat - "UNIX-CONNECT:$work/monitor.sock" >/dev/null 2>&1 || true; [[ -f "$work/qemu.pid" ]] || return 0; pid="$(<"$work/qemu.pid")"; kill -TERM "$pid" 2>/dev/null || true; for _ in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || return 0; sleep 1; done; kill -KILL "$pid" 2>/dev/null || true; kill -0 "$pid" 2>/dev/null && die "QEMU did not stop" || true; }
+# Read the pid ONCE and tolerantly. Testing -f and then reading the file is a
+# race this function creates for itself: the line above asks QEMU to quit, QEMU
+# removes its own -pidfile on the way out, and a read between those two points
+# fails with "No such file or directory". Under `set -e` in an EXIT trap that
+# turns a completed install into a failed runner -- observed exactly once, after
+# BOOTC_SECURE_INSTALLER printed its success marker. An absent, empty, or
+# unreadable pid file all mean the same thing here: nothing left to stop.
+stop_vm() { local work="$1" pid; [[ -S "$work/monitor.sock" ]] && printf 'quit\n' | socat - "UNIX-CONNECT:$work/monitor.sock" >/dev/null 2>&1 || true; pid="$(cat "$work/qemu.pid" 2>/dev/null || true)"; [[ -n "$pid" ]] || return 0; kill -TERM "$pid" 2>/dev/null || true; for _ in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || return 0; sleep 1; done; kill -KILL "$pid" 2>/dev/null || true; kill -0 "$pid" 2>/dev/null && die "QEMU did not stop" || true; }
 # Key auth as root, via the credential-injected unit above. Logging in as root
 # removes the sudo hop the old liveuser path needed, and drops the
 # password-helper dependency entirely.
