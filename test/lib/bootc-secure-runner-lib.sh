@@ -40,7 +40,12 @@ validate_recipe() {
 validate_state() {
     local state="$1"; need jq; [[ -r "$state" ]] || blocked "secure state manifest is unavailable"
     [[ "$(stat -c '%a' "$state")" == 600 ]] || die "secure state manifest must be mode 0600"
-    jq -e 'type == "object" and (.target_disk|strings) and (.ssh_private_key|strings)' "$state" >/dev/null || die "secure state manifest is not path-only Task 9 state"
+    # ssh_key, not ssh_private_key. snosi owns this manifest and writes
+    # ssh_key -- consistent with its mok_cert and pcr_public shorthand -- so
+    # requiring ssh_private_key rejected every manifest it produces. The schema
+    # is documented in snosi's docs/bootc-secure-install-contract.md; both sides
+    # were previously guessing at an undocumented interface.
+    jq -e 'type == "object" and (.target_disk|strings) and (.ssh_key|strings)' "$state" >/dev/null || die "secure state manifest is not path-only Task 9 state"
 }
 qemu_bin() { command -v qemu-system-x86_64 || blocked "qemu-system-x86_64 is required"; }
 ssh_port() { python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()' 2>/dev/null || blocked "python3 is required to allocate an SSH port"; }
