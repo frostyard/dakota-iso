@@ -1,6 +1,7 @@
 """Fixture contracts for Dakota's external Snosi Task 9 runners."""
 
 import os
+import re
 import stat
 import subprocess
 import tempfile
@@ -159,9 +160,38 @@ class TestBootcSecureRunners(unittest.TestCase):
         self.assertIn("stop_vm", library)
         self.assertIn("old_unavailable_proven=1", recovery)
         self.assertNotIn('printf \'BOOTC_SECURE_RECOVERY', recovery.split('old_unavailable_proven=1', 1)[0])
-        self.assertIn("ssh_private_key", recovery)
         self.assertIn("assert_stale_token_rejected", recovery)
         self.assertIn("/run/snosi-task9/recovery.key", INSTALLER.read_text())
+
+    def test_state_manifest_keys_read_by_runners_are_validated(self):
+        # This assertion used to be `assertIn("ssh_private_key", recovery)` --
+        # a bare substring check that pinned a literal name nothing produced.
+        # snosi writes ssh_key, so the test was holding the runner to a key
+        # that never appears in a real manifest, and passed while the runner
+        # read an empty value and bailed. Couple the reader to the validator
+        # instead: every key a runner pulls out of the state manifest must be
+        # one validate_state actually requires, so a rename on either side
+        # fails here rather than at 03:00 in a VM.
+        # Comments are stripped before the wrong-name check: both the library
+        # and this test explain the ssh_key/ssh_private_key confusion in prose,
+        # and that prose must not trip the guard against the name in code.
+        def code(text: str) -> str:
+            return "\n".join(re.sub(r"(^|\s)#.*", "", line) for line in text.splitlines())
+
+        library = (REPO / "test/lib/bootc-secure-runner-lib.sh").read_text()
+        validated = set(re.findall(r"\.([a-z_]+)\|strings", library))
+        self.assertIn("ssh_key", validated)
+        self.assertNotIn("ssh_private_key", code(library))
+
+        for runner in (INSTALLER, NEGATIVE, RECOVERY, PUBLISH, UPDATE_NEGATIVE):
+            source = runner.read_text()
+            self.assertNotIn("ssh_private_key", code(source))
+            for key in re.findall(r'json_string "\$\{?\d+\}?" ([a-z_]+)', source):
+                self.assertIn(
+                    key,
+                    validated,
+                    f"{runner.name} reads state key '{key}', which validate_state does not require",
+                )
 
     def test_secure_repository_parser_rejects_near_miss_hosts(self):
         library = REPO / "test/lib/bootc-secure-runner-lib.sh"
