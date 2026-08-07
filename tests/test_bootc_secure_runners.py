@@ -193,6 +193,39 @@ class TestBootcSecureRunners(unittest.TestCase):
                     f"{runner.name} reads state key '{key}', which validate_state does not require",
                 )
 
+    def test_stop_vm_succeeds_on_both_graceful_paths(self):
+        # stop_vm used bare `return` on both early exits, so it yielded the
+        # status of the failing half of the preceding `||` -- reporting failure
+        # exactly when it succeeded. Harmless in the two EXIT-trap callers,
+        # fatal in the recovery runner, which calls it as a function's last
+        # command under `set -e`. Assert the status directly on both paths:
+        # a caller's `set -e` cares about nothing else.
+        library = REPO / "test/lib/bootc-secure-runner-lib.sh"
+        for name, setup in (
+            ("no pid file", ""),
+            ("process already gone", 'printf %s "$$" > "$W/qemu.pid"'),
+        ):
+            with self.subTest(path=name):
+                # A pid that cannot exist beats reusing a live one: $$ is this
+                # shell, so the second case writes a pid that IS running, then
+                # the loop's `kill -0` must fail. Use an unused-pid stand-in.
+                script = f"""
+                set -Eeuo pipefail
+                source {library}
+                W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+                {setup.replace('$$', '2147483646')}
+                stop_vm "$W"
+                echo "stop_vm returned $?"
+                """
+                run = subprocess.run(
+                    ["/bin/bash", "-c", script], capture_output=True, text=True
+                )
+                self.assertEqual(
+                    run.returncode, 0,
+                    f"stop_vm failed on the '{name}' path: {run.stderr}",
+                )
+                self.assertIn("stop_vm returned 0", run.stdout)
+
     def test_secure_repository_parser_rejects_near_miss_hosts(self):
         library = REPO / "test/lib/bootc-secure-runner-lib.sh"
         good = "source %s; same_secure_repo ghcr.io/frostyard/cayo@sha256:%s ghcr.io/frostyard/cayo:test cayo" % (library, "a" * 64)

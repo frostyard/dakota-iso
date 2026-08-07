@@ -170,7 +170,14 @@ start_installed() {
         -netdev "user,id=net0,hostfwd=tcp:127.0.0.1:${port}-:22" -device virtio-net-pci,netdev=net0 \
         -monitor "unix:$work/monitor.sock,server=on,wait=off" -serial "file:$work/serial.log" -display none -pidfile "$work/qemu.pid" -daemonize
 }
-stop_vm() { local work="$1" pid; [[ -S "$work/monitor.sock" ]] && printf 'quit\n' | socat - "UNIX-CONNECT:$work/monitor.sock" >/dev/null 2>&1 || true; [[ -f "$work/qemu.pid" ]] || return; pid="$(<"$work/qemu.pid")"; kill -TERM "$pid" 2>/dev/null || true; for _ in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || return; sleep 1; done; kill -KILL "$pid" 2>/dev/null || true; kill -0 "$pid" 2>/dev/null && die "QEMU did not stop" || true; }
+# Both early returns are SUCCESS paths and must say so explicitly. A bare
+# `return` yields the status of the command that just ran, and in both cases
+# that command is the failing half of an `||` -- so `stop_vm` reported failure
+# exactly when it worked ("no VM to stop" and "the VM stopped, confirmed"),
+# and succeeded only in the had-to-SIGKILL branch. Inert in the two EXIT-trap
+# callers, fatal in the one that calls it as a function's last command under
+# `set -e`: the recovery runner died there with no message for two lane runs.
+stop_vm() { local work="$1" pid; [[ -S "$work/monitor.sock" ]] && printf 'quit\n' | socat - "UNIX-CONNECT:$work/monitor.sock" >/dev/null 2>&1 || true; [[ -f "$work/qemu.pid" ]] || return 0; pid="$(<"$work/qemu.pid")"; kill -TERM "$pid" 2>/dev/null || true; for _ in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || return 0; sleep 1; done; kill -KILL "$pid" 2>/dev/null || true; kill -0 "$pid" 2>/dev/null && die "QEMU did not stop" || true; }
 # Key auth as root, via the credential-injected unit above. Logging in as root
 # removes the sudo hop the old liveuser path needed, and drops the
 # password-helper dependency entirely.
