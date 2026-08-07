@@ -101,6 +101,14 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# Straight to the serial console the harness captures. Without this the
+# QA-SSH report below goes to the journal, which nothing collects when the
+# guest never becomes reachable -- and the whole point of that report is to
+# explain the case where it does not. #20 added the diagnostics and this line
+# is what makes them visible. Same mechanism live-ready.service uses.
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/ttyS0
 ExecStart=/bin/bash -c 'set -eu; \
 install -d -m 0700 /root/.ssh; \
 echo ${pub} | base64 -d > /root/.ssh/authorized_keys; \
