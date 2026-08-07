@@ -226,6 +226,29 @@ class TestBootcSecureRunners(unittest.TestCase):
                 )
                 self.assertIn("stop_vm returned 0", run.stdout)
 
+    def test_recovery_rearms_tpm_after_stopping_the_vm(self):
+        # The replacement-TPM case stops a VM and then starts another one
+        # against the same swtpm. The control socket does not survive that,
+        # so the second QEMU dies at -chardev with "No such file or directory"
+        # unless swtpm is brought back up in between -- and it must come back
+        # against the SAME --tpmstate dir, since that IS the replacement TPM
+        # the case goes on to rotate. Wiping it here would quietly gut the test.
+        recovery = RECOVERY.read_text()
+        body = recovery.split("assert_stale_token_rejected()", 1)[1].split("\n}", 1)[0]
+        self.assertIn("stop_vm", body)
+        self.assertIn("restart_tpm", body)
+        self.assertLess(
+            body.index("stop_vm"), body.index("restart_tpm"),
+            "swtpm must be re-armed after the VM stops, not before",
+        )
+        rearm = recovery.split("restart_tpm()", 1)[1].split("\n}", 1)[0]
+        self.assertNotIn("rm -rf", rearm)
+        self.assertNotIn("SNOSI_SECURE_TPM_STATE", rearm)
+        # QEMU does not retry a missing -chardev socket, so the start must not
+        # return before the socket exists.
+        start = recovery.split("start_tpm()", 1)[1].split("\n}", 1)[0]
+        self.assertIn("-S \"$SNOSI_SECURE_TPM_SOCKET\"", start)
+
     def test_secure_repository_parser_rejects_near_miss_hosts(self):
         library = REPO / "test/lib/bootc-secure-runner-lib.sh"
         good = "source %s; same_secure_repo ghcr.io/frostyard/cayo@sha256:%s ghcr.io/frostyard/cayo:test cayo" % (library, "a" * 64)

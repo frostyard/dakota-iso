@@ -28,7 +28,28 @@ on_err() {
 trap 'on_err "$LINENO" "$BASH_COMMAND"' ERR
 trap 'stop_vm "$WORK"; stop_tpm; rm -f "$SNOSI_SECURE_TPM_SOCKET"; rm -rf "$WORK"' EXIT
 phase() { PHASE="$1"; printf 'recovery-runner: %s\n' "$1" >&2; }
-start_tpm() { swtpm socket --tpm2 --tpmstate "dir=$SNOSI_SECURE_TPM_STATE" --ctrl "type=unixio,path=$SNOSI_SECURE_TPM_SOCKET" --pid "file=$WORK/swtpm.pid" --daemon; }
+start_tpm() {
+    rm -f "$SNOSI_SECURE_TPM_SOCKET"
+    swtpm socket --tpm2 --tpmstate "dir=$SNOSI_SECURE_TPM_STATE" --ctrl "type=unixio,path=$SNOSI_SECURE_TPM_SOCKET" --pid "file=$WORK/swtpm.pid" --daemon
+    # --daemon forks before the control socket necessarily exists; QEMU fails
+    # outright rather than retrying if it connects too early.
+    for _ in $(seq 1 50); do [[ -S "$SNOSI_SECURE_TPM_SOCKET" ]] && return 0; sleep 0.1; done
+    blocked "swtpm control socket never appeared at $SNOSI_SECURE_TPM_SOCKET"
+}
+# Bring swtpm back up around a VM stop, whether or not it followed its client
+# down. Tearing the old one down first keeps this correct in both cases: two
+# swtpm processes sharing one --tpmstate dir would be worse than the failure
+# this repairs. Never wipes state -- callers own that decision.
+restart_tpm() {
+    local pid
+    if [[ -f "$WORK/swtpm.pid" ]]; then
+        pid="$(<"$WORK/swtpm.pid")"
+        kill -TERM "$pid" 2>/dev/null || true
+        for _ in $(seq 1 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+        kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
+    fi
+    start_tpm
+}
 old_unavailable_proven=0
 assert_stale_token_rejected() {
     local port seen=0; port="$(ssh_port)"; start_installed "$DISK" "$WORK" "$port"
@@ -41,6 +62,18 @@ assert_stale_token_rejected() {
     old_unavailable_proven=1
     phase "stale token rejected; stopping the replacement-TPM VM"
     stop_vm "$WORK"; rm -f "$WORK/monitor.sock" "$WORK/qemu.pid"
+    # The observed failure: after this VM stops, the swtpm control socket is
+    # gone, and the live guest started next dies at -chardev with "No such file
+    # or directory". Rather than depend on exactly when swtpm decides to follow
+    # its client down -- a bare connect/disconnect provably does NOT kill it,
+    # so the trigger is something in QEMU's session teardown -- make the state
+    # deterministic: tear swtpm down explicitly, then bring it back up.
+    #
+    # Re-arm against the SAME --tpmstate dir. This is the replacement TPM whose
+    # staleness the proof above just established; reinitializing it here would
+    # silently discard exactly what the rest of the case goes on to rotate.
+    phase "re-arming swtpm against the retained replacement TPM state"
+    restart_tpm
 }
 case "$CASE" in
     tpm-replacement)
