@@ -11,10 +11,8 @@ from pathlib import Path
 
 REPO = Path(__file__).parent.parent
 INSTALLER = REPO / "test" / "bootc-secure-installer-runner.sh"
-NEGATIVE = REPO / "test" / "bootc-secure-negative-runner.sh"
 RECOVERY = REPO / "test" / "bootc-secure-recovery-runner.sh"
 PUBLISH = REPO / "test" / "bootc-secure-update-publish.sh"
-UPDATE_NEGATIVE = REPO / "test" / "bootc-secure-update-negative-runner.sh"
 
 
 class TestBootcSecureRunners(unittest.TestCase):
@@ -28,7 +26,7 @@ class TestBootcSecureRunners(unittest.TestCase):
         )
 
     def test_all_runners_are_shell_syntax_valid(self):
-        for runner in (INSTALLER, NEGATIVE, RECOVERY, PUBLISH, UPDATE_NEGATIVE):
+        for runner in (INSTALLER, RECOVERY, PUBLISH):
             result = subprocess.run(["/bin/bash", "-n", str(runner)], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -48,17 +46,6 @@ class TestBootcSecureRunners(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 2, result.stderr)
             self.assertIn("BLOCKED:", result.stderr)
-
-    def test_negative_rejects_unknown_case(self):
-        result = self.run_runner(NEGATIVE, "--case", "not-a-case", "--profile", "cayo", "--oci-ref", "x", "--recipe", "x")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("unknown secure negative case", result.stderr)
-
-    def test_negative_without_signed_fixture_is_blocked_not_success(self):
-        result = self.run_runner(NEGATIVE, "--case", "unsigned", "--profile", "cayo", "--oci-ref", "x", "--recipe", "x")
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn("BLOCKED:", result.stderr)
-        self.assertNotIn("rejected", result.stdout)
 
     def test_recovery_requires_mode_0600_path_only_state(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -81,14 +68,8 @@ class TestBootcSecureRunners(unittest.TestCase):
     def test_publisher_missing_skopeo_is_blocked(self):
         self.assertIn("need skopeo", PUBLISH.read_text())
 
-    def test_update_negative_is_blocked_without_live_state(self):
-        result = self.run_runner(UPDATE_NEGATIVE, "--case", "unsigned", "--profile", "cayo", "--state", "/missing", "--tracking-ref", "ghcr.io/frostyard/cayo:test")
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn("BLOCKED:", result.stderr)
-        self.assertNotIn("rejected", result.stdout)
-
     def test_runner_sources_forbid_bls_or_kernel_argument_mutation(self):
-        for runner in (INSTALLER, NEGATIVE, RECOVERY, UPDATE_NEGATIVE):
+        for runner in (INSTALLER, RECOVERY):
             content = runner.read_text()
             self.assertNotIn("rd.luks.name=", content)
             self.assertNotIn("--karg", content)
@@ -183,7 +164,7 @@ class TestBootcSecureRunners(unittest.TestCase):
         self.assertIn("ssh_key", validated)
         self.assertNotIn("ssh_private_key", code(library))
 
-        for runner in (INSTALLER, NEGATIVE, RECOVERY, PUBLISH, UPDATE_NEGATIVE):
+        for runner in (INSTALLER, RECOVERY, PUBLISH):
             source = runner.read_text()
             self.assertNotIn("ssh_private_key", code(source))
             for key in re.findall(r'json_string "\$\{?\d+\}?" ([a-z_]+)', source):
@@ -269,7 +250,7 @@ class TestBootcSecureRunners(unittest.TestCase):
         # substitution, so the visible symptom is whatever the empty result
         # causes downstream -- here, a bogus "expected exactly one LUKS device"
         # naming a device count that was never actually read.
-        for runner in (INSTALLER, NEGATIVE, RECOVERY, PUBLISH, UPDATE_NEGATIVE):
+        for runner in (INSTALLER, RECOVERY, PUBLISH):
             for program in re.findall(r'awk "((?:[^"\\]|\\.)*)"', runner.read_text()):
                 unescaped = re.findall(r'(?<!\\)\$\d', program)
                 self.assertEqual(
