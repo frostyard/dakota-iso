@@ -249,6 +249,23 @@ class TestBootcSecureRunners(unittest.TestCase):
         start = recovery.split("start_tpm()", 1)[1].split("\n}", 1)[0]
         self.assertIn("-S \"$SNOSI_SECURE_TPM_SOCKET\"", start)
 
+    def test_remote_awk_field_references_are_escaped(self):
+        # These awk programs are carried inside `sudo bash -ceu '...'` on the
+        # far end of an ssh. An awk field reference written as $2 rather than
+        # \$2 is eaten by that bash as a positional parameter, and -u turns the
+        # unset parameter into a fatal error. It fails inside a process
+        # substitution, so the visible symptom is whatever the empty result
+        # causes downstream -- here, a bogus "expected exactly one LUKS device"
+        # naming a device count that was never actually read.
+        for runner in (INSTALLER, NEGATIVE, RECOVERY, PUBLISH, UPDATE_NEGATIVE):
+            for program in re.findall(r'awk "((?:[^"\\]|\\.)*)"', runner.read_text()):
+                unescaped = re.findall(r'(?<!\\)\$\d', program)
+                self.assertEqual(
+                    unescaped, [],
+                    f"{runner.name}: awk program has unescaped field reference(s) "
+                    f"{unescaped}; the remote bash -ceu will expand them: {program}",
+                )
+
     def test_secure_repository_parser_rejects_near_miss_hosts(self):
         library = REPO / "test/lib/bootc-secure-runner-lib.sh"
         good = "source %s; same_secure_repo ghcr.io/frostyard/cayo@sha256:%s ghcr.io/frostyard/cayo:test cayo" % (library, "a" * 64)
