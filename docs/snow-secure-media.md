@@ -67,10 +67,13 @@ failure. Full installed-system validation is Task 9.
 
 The external Snosi Task 9 harness invokes these test-only adapters directly:
 `test/bootc-secure-installer-runner.sh`,
-`test/bootc-secure-negative-runner.sh`,
-`test/bootc-secure-recovery-runner.sh`,
-`test/bootc-secure-update-publish.sh`, and
-`test/bootc-secure-update-negative-runner.sh`.
+`test/bootc-secure-recovery-runner.sh`, and
+`test/bootc-secure-update-publish.sh`.
+
+There are no negative-fixture adapters. Snosi's harness no longer requires
+them, so proving the installer refuses a deliberately-broken image is not
+covered here. Note this is separate from the shim `Security Violation` proof
+above, which is unaffected and remains this media's enforcement evidence.
 
 They consume the exact `SNOSI_SECURE_OVMF_*` and `SNOSI_SECURE_TPM_*` state
 provided by Snosi. The installer starts only its live-media VM, invokes the

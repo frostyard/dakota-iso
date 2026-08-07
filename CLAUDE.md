@@ -497,8 +497,12 @@ must not be wired into CI before Task 10. They consume harness-owned
 and `SNOSI_SECURE_TPM_SOCKET`; never replace those paths during an install.
 They run the reviewed `/usr/lib/snosi/fisherman` secure path, keep recovery
 bytes in mode-0600 `/run/snosi-task9` files only, and must never patch BLS or
-kernel arguments. Signed causal negative fixtures are intentionally external:
-without one, print `BLOCKED:` and exit 2 rather than a synthetic success marker.
+kernel arguments. There are no negative-fixture runners: Snosi's harness no
+longer requires them, and install-time refusal of a deliberately-broken image
+is knowingly unproven. Do not add a non-causal substitute — a negative test
+that cannot distinguish "refused for this reason" from "refused for any
+reason" reports green while the control is absent. The shim `Security
+Violation` proof in `test/snow-secure-boot-smoke.sh` is separate and unaffected.
 The fixture test is `tests/test_bootc_secure_runners.py`.
 The installer must use the composefs persistent `state/deploy/*/etc` path,
 never the legacy ostree deployment path. Recovery distinguishes TPM replacement
