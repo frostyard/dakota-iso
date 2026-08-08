@@ -95,8 +95,45 @@ phase "staging the recovery credential in the live guest"
 live_ssh "$PORT" "sudo install -d -m 0700 /run/snosi-task9"
 scp_live "$PORT" "$RECOVERY" /run/snosi-task9/recovery.key
 phase "rotating the LUKS TPM token"
+# The rotation block below also clears systemd's stored TPM SRK public key.
+#
+# A replaced TPM leaves that key belonging to the OLD one, and
+# systemd-tpm2-setup{,-early} then fail on every subsequent boot with
+#
+#     TPM key integrity check failed. Key most likely does not belong to this TPM.
+#
+# so a system recovered by this exact procedure boots, TPM-unlocks, and is
+# permanently degraded. Observed live on snosi run 31235071207, where the
+# install harness had already reported "no system units failed" BEFORE the
+# recovery legs and never re-checked afterwards.
+#
+# Cleared unconditionally rather than only for tpm-replacement: it is done
+# inside the mount this block already holds, so it costs nothing, and on the
+# same-TPM rotation case systemd simply re-derives an identical key from the
+# unchanged TPM. A case-conditional would have meant a second VM round trip
+# and a second LUKS open for no behavioural difference.
+#
+# /var on a composefs deployment is state/os/<stateroot>/var. <root>/var also
+# exists, is a different directory, and nothing mounts it -- writing there
+# would silently do nothing, which is why the glob is asserted to match once.
 # shellcheck disable=SC2016 # This is intentionally expanded by the remote shell.
-live_ssh "$PORT" 'sudo bash -ceu '"'"'mapfile -t luks < <(lsblk -nrpo NAME,FSTYPE /dev/vda | awk "\$2==\"crypto_LUKS\"{print \$1}"); ((${#luks[@]} == 1)) || { echo "expected exactly one LUKS device" >&2; exit 1; }; cryptsetup open --key-file=/run/snosi-task9/recovery.key "${luks[0]}" root; backing=$(cryptsetup status root | awk "\$1==\"device:\"{print \$2;exit}"); [[ "$backing" == "${luks[0]}" ]] || exit 1; old_token=$(cryptsetup luksDump --dump-json-metadata "$backing" | jq -c ".tokens | to_entries[] | select(.value.type == \"systemd-tpm2\")"); m=$(mktemp -d); mount /dev/mapper/root "$m"; esp=$(lsblk -nrpo NAME,PARTTYPE /dev/vda | awk "tolower(\$2)==\"c12a7328-f81f-11d2-ba4b-00a0c93ec93b\"{print \$1}"); test $(wc -w <<<"$esp") -eq 1; mount "$esp" "$m/boot/efi"; entry=$(find "$m/boot/efi/loader/entries" -name "*.conf" | head -1); uki=$(awk "\$1==\"uki\" || \$1==\"efi\"{print \$2;exit}" "$entry"); cp "$m/boot/efi/${uki#/}" /run/uki-copy.efi; objcopy --dump-section .pcrpkey=/run/pcr-public /run/uki-copy.efi /run/uki-discard.efi; rm -f /run/uki-copy.efi /run/uki-discard.efi; systemd-cryptenroll --wipe-slot=tpm2 "$backing"; test -z "$(cryptsetup luksDump --dump-json-metadata "$backing" | jq -r ".tokens | to_entries[]? | select(.value.type == \"systemd-tpm2\") | .key")"; systemd-cryptenroll --unlock-key-file=/run/snosi-task9/recovery.key --tpm2-device=auto --tpm2-pcrs= --tpm2-public-key=/run/pcr-public --tpm2-public-key-pcrs=11 --tpm2-pcrlock= "$backing"; new_token=$(cryptsetup luksDump --dump-json-metadata "$backing" | jq -c ".tokens | to_entries[] | select(.value.type == \"systemd-tpm2\")"); [[ "$old_token" != "$new_token" ]]; cryptsetup open --test-passphrase --key-file=/run/snosi-task9/recovery.key "$backing"; rm -rf /run/snosi-task9 /run/pcr-public; umount "$m/boot/efi"; umount "$m"; rmdir "$m"; cryptsetup close root'"'"''
+live_ssh "$PORT" 'sudo bash -ceu '"'"'mapfile -t luks < <(lsblk -nrpo NAME,FSTYPE /dev/vda | awk "\$2==\"crypto_LUKS\"{print \$1}"); ((${#luks[@]} == 1)) || { echo "expected exactly one LUKS device" >&2; exit 1; }; cryptsetup open --key-file=/run/snosi-task9/recovery.key "${luks[0]}" root; backing=$(cryptsetup status root | awk "\$1==\"device:\"{print \$2;exit}"); [[ "$backing" == "${luks[0]}" ]] || exit 1; old_token=$(cryptsetup luksDump --dump-json-metadata "$backing" | jq -c ".tokens | to_entries[] | select(.value.type == \"systemd-tpm2\")"); m=$(mktemp -d); mount /dev/mapper/root "$m"; esp=$(lsblk -nrpo NAME,PARTTYPE /dev/vda | awk "tolower(\$2)==\"c12a7328-f81f-11d2-ba4b-00a0c93ec93b\"{print \$1}"); test $(wc -w <<<"$esp") -eq 1; mount "$esp" "$m/boot/efi"; entry=$(find "$m/boot/efi/loader/entries" -name "*.conf" | head -1); uki=$(awk "\$1==\"uki\" || \$1==\"efi\"{print \$2;exit}" "$entry"); cp "$m/boot/efi/${uki#/}" /run/uki-copy.efi; objcopy --dump-section .pcrpkey=/run/pcr-public /run/uki-copy.efi /run/uki-discard.efi; rm -f /run/uki-copy.efi /run/uki-discard.efi; systemd-cryptenroll --wipe-slot=tpm2 "$backing"; test -z "$(cryptsetup luksDump --dump-json-metadata "$backing" | jq -r ".tokens | to_entries[]? | select(.value.type == \"systemd-tpm2\") | .key")"; systemd-cryptenroll --unlock-key-file=/run/snosi-task9/recovery.key --tpm2-device=auto --tpm2-pcrs= --tpm2-public-key=/run/pcr-public --tpm2-public-key-pcrs=11 --tpm2-pcrlock= "$backing"; new_token=$(cryptsetup luksDump --dump-json-metadata "$backing" | jq -c ".tokens | to_entries[] | select(.value.type == \"systemd-tpm2\")"); [[ "$old_token" != "$new_token" ]]; cryptsetup open --test-passphrase --key-file=/run/snosi-task9/recovery.key "$backing"; mapfile -t srkvars < <(printf "%s\n" "$m"/state/os/*/var); { ((${#srkvars[@]} == 1)) && test -d "${srkvars[0]}"; } || { echo "expected exactly one stateroot var, got: ${srkvars[*]}" >&2; exit 1; }; rm -f "${srkvars[0]}/lib/systemd/tpm2-srk-public-key.pem"; sync; rm -rf /run/snosi-task9 /run/pcr-public; umount "$m/boot/efi"; umount "$m"; rmdir "$m"; cryptsetup close root'"'"''
+# A REPLACED TPM leaves systemd's stored SRK public key belonging to the old
+# one. systemd-tpm2-setup{,-early} then fail every boot with
+#
+#     TPM key integrity check failed. Key most likely does not belong to this TPM.
+#
+# so a system recovered by this exact procedure boots, unlocks, and is
+# permanently degraded. Observed on snosi run 31235071207. Clearing the stale
+# key lets systemd-tpm2-setup re-derive it from the new TPM on next boot.
+#
+# tpm-replacement ONLY. recovery-reenrollment rotates the LUKS token against
+# the SAME TPM, where the stored key is still correct and removing it would be
+# churn for no reason.
+#
+# /var on a composefs deployment is state/os/<stateroot>/var, not <root>/var --
+# the latter exists and is a different directory nothing mounts, so writing
+# there would silently do nothing.
 if [[ "$CASE" == recovery-reenrollment ]]; then
     old_unavailable_proven=1
 fi
